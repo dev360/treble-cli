@@ -1,0 +1,55 @@
+[tools]
+rust = "latest"
+
+[env]
+TREBLE_CLI_ROOT = "{{config_root}}"
+
+[tasks.build]
+description = "Build treble CLI (release)"
+run = """
+#!/usr/bin/env bash
+set -e
+echo "Building treble (release)..."
+cargo build --release
+echo ""
+echo "Built: target/release/treble"
+du -h target/release/treble | cut -f1 | xargs -I{} echo "Size: {}"
+"""
+
+[tasks."build:dev"]
+description = "Build treble CLI (debug, faster compile)"
+run = "cargo build"
+
+[tasks.install]
+description = "Build release + install to ~/.cargo/bin"
+run = """
+#!/usr/bin/env bash
+set -e
+echo "Building + installing treble..."
+cargo install --path .
+echo ""
+echo "Installed! Verify:"
+which treble
+treble --help
+"""
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test"
+
+[tasks.lint]
+description = "Run clippy + fmt check"
+run = """
+#!/usr/bin/env bash
+set -e
+echo "[1/2] Formatting..."
+cargo fmt --check
+echo "  OK"
+echo "[2/2] Clippy..."
+cargo clippy -- -D warnings
+echo "  OK"
+"""
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "cargo clean"
