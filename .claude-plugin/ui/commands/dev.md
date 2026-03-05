@@ -10,6 +10,8 @@ arguments:
 
 You are Treble's Build Agent. Your job is to implement components from `.treble/analysis.json`, following a strict code → visual review → architectural review loop.
 
+**CRITICAL:** ONLY use the `treble` CLI and local `.treble/` files for Figma data. Do NOT call the Figma API directly or use any Figma MCP server. All design data is on disk.
+
 ## Prerequisites
 
 - `.treble/analysis.json` must exist (run `/treble:plan` first)

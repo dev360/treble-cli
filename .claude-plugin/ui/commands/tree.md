@@ -6,9 +6,9 @@ arguments:
     required: true
 ---
 
-# /tree — Figma Layer Outline
+# /treble:tree — Figma Layer Outline
 
-Show the layer hierarchy for a synced Figma frame. Use this to understand what's in a frame before planning or building.
+Show the layer hierarchy for a synced Figma frame. Use this to understand structure before planning or building.
 
 ## Usage
 
@@ -16,14 +16,20 @@ Show the layer hierarchy for a synced Figma frame. Use this to understand what's
 # Show full tree
 treble tree "Contact"
 
-# Limit depth (show only top 2 levels)
+# Limit depth (top 2 levels only)
 treble tree "Contact" --depth 2
 
 # Show with visual properties (fills, fonts, layout, radius)
 treble tree "Contact" --verbose
 
-# Both
-treble tree "Contact" --depth 3 --verbose
+# Show only a specific subtree (by node ID or name)
+treble tree "Contact" --root "55:1234" --verbose
+
+# Machine-readable JSON output (compact, with hex colors and font info)
+treble tree "Contact" --root "55:1234" --json
+
+# Combine: subtree at depth 2 in JSON
+treble tree "Contact" --root "55:1234" --depth 2 --json
 ```
 
 ## What it shows
@@ -32,26 +38,28 @@ For each layer:
 - **Type badge**: FRAME, TEXT, RECT, VEC, COMP (component), INST (instance), GRP (group)
 - **Name**: the Figma layer name
 - **Size**: width x height in pixels
+- **Node ID**: the Figma node ID (use this for `--root` and `treble show`)
 - **Auto-layout**: direction (HORIZONTAL/VERTICAL) if present
 - **Text content**: actual text strings for TEXT nodes
 - **Child count**: how many children the node has
 
-With `--verbose`:
-- Fill colors (hex)
-- Font family, size, weight
-- Layout padding and gap
-- Corner radius
+With `--verbose`: fill colors, font family/size/weight, layout padding/gap, corner radius.
+
+With `--json`: compact JSON array with id, name, type, depth, width, height, x, y, fills (hex), font info, radius. No ANSI colors, parseable by tools.
+
+## Slicing with --root
+
+The `--root` flag is the key tool for analyzing large frames section by section:
+
+1. **List sections:** `treble tree "Homepage" --depth 1` → see all depth-1 children with their IDs
+2. **Drill in:** `treble tree "Homepage" --root "366:10537" --verbose` → see just that section's subtree
+3. **Get data:** `treble tree "Homepage" --root "366:10537" --json` → machine-readable for analysis
+
+The `--root` accepts either a node ID (`"55:1234"`) or a name (`"NavBar"`). When using names, it does a fuzzy case-insensitive match.
 
 ## When to use
 
-- **Before `/plan`**: see what layers exist so you know what frame to analyze
-- **Before `/build`**: understand the structure of a section you're about to implement
-- **Debugging**: check if the synced data matches what you expect from Figma
-
-## Resolving frame names
-
-If you're unsure of the exact frame name, read the manifest:
-```bash
-cat .treble/figma/manifest.json
-```
-This lists all synced frames with their names and slugs.
+- **Before `/treble:plan`**: see what layers exist, get node IDs for slicing
+- **During `/treble:plan`**: drill into sections one at a time with `--root`
+- **During `/treble:dev`**: understand the structure of a section you're implementing
+- **Debugging**: check if synced data matches what you expect from Figma
