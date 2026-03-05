@@ -89,21 +89,124 @@ If the depth-1 children are mostly loose primitives (RECTANGLE, TEXT, VECTOR, un
 
 ## Step 3: Analyze section by section
 
-For each visual section you identified, gather context using the slice tools:
+For each visual section you identified, gather context using the slice tools.
+
+### How to see a specific node
+
+This is a 3-step process. Here's a complete walkthrough with real output.
+
+**1. Get the node ID from the tree overview:**
 
 ```bash
-# See the section visually (full Figma composite render)
-treble show "<sectionNodeId>" --frame "{FrameName}"
-
-# Read the saved screenshot
-Read .treble/figma/{frame-slug}/snapshots/{section-name}.png
-
-# Get the structural breakdown with visual properties
-treble tree "{FrameName}" --root "<sectionNodeId>" --verbose
-
-# Or get machine-readable JSON (compact, with hex colors, font info, positions)
-treble tree "{FrameName}" --root "<sectionNodeId>" --json
+treble tree "Homepage" --depth 1
 ```
+
+Example output:
+```
+Frame: "Homepage" (254:2234) — 370 nodes
+  Size: 1440x826
+
+FRAME Homepage [1440x7228] 254:1863 (159 children)
+  RECT Rectangle 2386630 [1440x800] 250:1019
+  RECT Rectangle 2388772 [853x800] 254:2232
+  GRP Group 1171277834 [115x40] 254:1876 (2 children)
+  TEXT About [52x26] 254:1871 "About"
+  TEXT Careers [65x26] 254:1872 "Careers"
+  ...
+```
+
+Each line shows: `TYPE Name [WIDTHxHEIGHT] NODE_ID`. The node ID (e.g. `254:1876`) is what you use for slicing.
+
+**2. Render the node as a screenshot** (calls Figma API, saves PNG to disk):
+
+```bash
+treble show "254:1876" --frame "Homepage"
+```
+
+Output:
+```
+Rendering Group 1171277834 (254:1876)...
+Done! Saved to .treble/figma/homepage/snapshots/group-1171277834.png
+  Size: 4832 bytes
+  Scale: 2x
+```
+
+**3. Read the saved screenshot** (now you can see it):
+
+```
+Read .treble/figma/homepage/snapshots/group-1171277834.png
+```
+
+The file is at `.treble/figma/{frame-slug}/snapshots/{slugified-node-name}.png`. The exact path is printed by `treble show`.
+
+**4. Get the structural details** (colors, fonts, sizes):
+
+```bash
+treble tree "Homepage" --root "254:1876" --verbose
+```
+
+Example output:
+```
+Frame: "Homepage" (254:2234) — 3 nodes
+  Root: "254:1876"
+
+GRP Group 1171277834 [115x40] 254:1876 (2 children)
+  radius: 8
+  RECT Rectangle 71 [115x40] 254:1877
+    fill: #cdb07a
+    radius: 8
+  TEXT Solutions [93x21] 254:1878 "Solutions"
+    font: Aeonik TRIAL 15.37px w400
+    fill: #25282a
+```
+
+Or for machine-readable JSON:
+
+```bash
+treble tree "Homepage" --root "254:1876" --json
+```
+
+```json
+{
+  "frame": "Homepage",
+  "frameId": "254:2234",
+  "nodeCount": 3,
+  "nodes": [
+    {
+      "id": "254:1876", "name": "Group 1171277834", "type": "GROUP",
+      "depth": 0, "width": 115, "height": 40, "x": -3308, "y": 784,
+      "children": 2, "radius": 8
+    },
+    {
+      "id": "254:1877", "name": "Rectangle 71", "type": "RECTANGLE",
+      "depth": 1, "width": 115, "height": 40, "fills": ["#cdb07a"], "radius": 8
+    },
+    {
+      "id": "254:1878", "name": "Solutions", "type": "TEXT",
+      "depth": 1, "width": 93, "height": 21, "text": "Solutions",
+      "fills": ["#25282a"], "font": { "family": "Aeonik TRIAL", "size": 15.37, "weight": 400 }
+    }
+  ]
+}
+```
+
+### Full section-by-section workflow
+
+```bash
+# 1. Get all section IDs
+treble tree "Homepage" --depth 1
+
+# 2. Pick a section by its node ID and render it
+treble show "254:1876" --frame "Homepage"
+
+# 3. Look at the rendered screenshot (path from step 2 output)
+Read .treble/figma/homepage/snapshots/group-1171277834.png
+
+# 4. Get the structural details as JSON
+treble tree "Homepage" --root "254:1876" --json
+```
+
+Repeat for each section. You now have both the visual (screenshot) and structural (JSON) data for one piece of the page without loading the entire node tree.
 
 From each section, identify:
 
