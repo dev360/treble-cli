@@ -119,6 +119,21 @@ impl FigmaClient {
         Ok(image_resp.images)
     }
 
+    /// GET /v1/files/:key/images — resolve all imageRef hashes to CDN download URLs.
+    /// Returns a map of imageRef → URL. This is the SOURCE image endpoint, distinct
+    /// from GET /v1/images/:key which renders composited screenshots.
+    pub async fn get_file_images(&self, file_key: &str) -> Result<HashMap<String, String>> {
+        let url = format!("{FIGMA_API_BASE}/files/{file_key}/images");
+        let resp = self
+            .figma_get_with_retry(&url, &format!("files/{file_key}/images"))
+            .await?;
+        let file_images: FileImagesResponse = resp
+            .json()
+            .await
+            .context("Failed to parse file images response")?;
+        Ok(file_images.meta.images)
+    }
+
     /// Download an image URL to bytes
     pub async fn download_image(&self, url: &str) -> Result<Vec<u8>> {
         let resp = self
@@ -258,4 +273,36 @@ pub fn flatten_node_tree(
     }
 
     result
+}
+
+/// Scan a list of FlatNodes for IMAGE fills, returning (imageRef, nodeId, nodeName, width, height).
+/// Deduplicates by imageRef — multiple nodes may share the same source image.
+pub fn scan_image_refs(nodes: &[FlatNode]) -> Vec<(String, Vec<ImageNodeUsage>)> {
+    use std::collections::HashMap;
+    let mut ref_map: HashMap<String, Vec<ImageNodeUsage>> = HashMap::new();
+
+    for node in nodes {
+        if let Some(ref fills) = node.fills {
+            if let Some(arr) = fills.as_array() {
+                for fill in arr {
+                    let fill_type = fill.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    if fill_type == "IMAGE" {
+                        if let Some(image_ref) = fill.get("imageRef").and_then(|v| v.as_str()) {
+                            ref_map
+                                .entry(image_ref.to_string())
+                                .or_default()
+                                .push(ImageNodeUsage {
+                                    node_id: node.id.clone(),
+                                    node_name: node.name.clone(),
+                                    width: node.width,
+                                    height: node.height,
+                                });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ref_map.into_iter().collect()
 }

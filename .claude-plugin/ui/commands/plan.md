@@ -1,8 +1,8 @@
 ---
 description: Analyze a Figma design and create a structured component analysis
 arguments:
-  - name: frame
-    description: Frame name or description (e.g. "contact page", "home", "Contact")
+  - name: target
+    description: Frame name, node ID, or Figma URL (e.g. "contact page", "254:1863", or a "Copy link to selection" URL)
     required: false
 ---
 
@@ -18,11 +18,11 @@ You are Treble's Design Planner. Your job is to analyze a Figma frame and produc
 
 2. **Every nodeId you write MUST come from the synced data.** Search `nodes.json` or use `treble tree --json` output. NEVER invent or guess a node ID. If you can't find the right node, omit the `figmaNodes` entry and note it.
 
-3. **Work section by section.** Do NOT try to read an entire `nodes.json` file at once for large frames. Use the slicing workflow described below.
+3. **Use subagents for section analysis.** NEVER load section screenshots into the main conversation. Each section gets its own `Agent` subagent that reads the images, analyzes the section, and returns a JSON partial. This prevents context window bloat.
 
-4. **Zoom into every visual group.** The full-page reference.png is too small to see details. For every group of elements that visually belong together (a nav bar, a hero section, a card row, a footer), use `treble show` to render it and `Read` the PNG before analyzing it. Identify groups from the tree structure (FRAME/GROUP children) or by clustering nearby nodes by y-position. The tree tells you WHAT is there; the render tells you HOW it looks. Do not write implementation notes from tree data alone.
+4. **Every component MUST have `implementationNotes`** — detailed, specific notes on how to reproduce the visual look in CSS/Tailwind. Vague notes like "hero section with heading and button" are useless. Good notes describe exact colors, sizes, layout technique, background treatment, typography, spacing, and visual effects. These notes are the primary input the build agent uses to write code.
 
-5. **Every component MUST have `implementationNotes`** — detailed, specific notes on how to reproduce the visual look in CSS/Tailwind. Vague notes like "hero section with heading and button" are useless. Good notes describe exact colors, sizes, layout technique, background treatment, typography, spacing, and visual effects. These notes are the primary input the build agent uses to write code.
+5. **NEVER read PNG/image files in the main conversation.** All image reading MUST happen inside subagents. The main conversation should only work with text data (tree output, JSON, manifest).
 
 ## Step 0: Prerequisites
 
@@ -37,374 +37,193 @@ treble sync
 
 ## Step 1: Determine scope
 
-The user may say:
-- `/treble:plan the contact page` → find "Contact" in manifest
-- `/treble:plan` → ask which frame, or do all
-- `/treble:plan home and about` → do both frames sequentially
+The user's target argument can be:
+- **A Figma URL**: `https://www.figma.com/design/.../name?node-id=254-1863&...` → extract the `node-id` param, convert dashes to colons (`254-1863` → `254:1863`), find that ID in the manifest
+- **A node ID**: `254:1863` → find directly in the manifest by frame `id` field
+- **A frame name**: `"contact page"` or `"Homepage V2"` → substring match against frame `name` in manifest
+- **Nothing**: → ask the user which frame to analyze, or do all
 
-Read the manifest to resolve frame names to slugs:
+Read the manifest to resolve the target:
 ```bash
 cat .treble/figma/manifest.json
 ```
 
-## Step 2: Get the big picture
+**Resolution order:**
+1. If the target contains `figma.com`, parse `node-id` from the URL query params
+2. If the target matches the pattern `\d+:\d+` (digits:digits), treat as a node ID
+3. Otherwise, treat as a frame name (substring match)
+4. If the node ID is not a top-level frame in the manifest, it may be a child node — look for which frame contains it by checking node IDs in each frame's `nodes.json`
+
+**If no match is found**, tell the user which frames ARE available and ask them to pick one. Do NOT guess.
+
+## Step 2: Get the structural overview (TEXT ONLY — no images in main context)
 
 For each target frame:
 
-1. **Look at the full frame screenshot** — understand the overall visual layout:
-   ```
-   Read .treble/figma/{frame-slug}/reference.png
-   ```
-
-2. **Get the structural overview** — see all top-level sections with IDs:
+1. **Get the structural overview** — see all top-level sections with IDs:
    ```bash
    treble tree "{FrameName}" --depth 1
    ```
-   This shows every depth-1 child with its **node ID**, type, name, size, and child count. These IDs are how you slice.
+   This shows every depth-1 child with its **node ID**, type, name, size, and child count.
 
-3. **Look at section screenshots** if available:
+2. **Identify visual groups** from the tree output. Group depth-1 children into logical sections:
+   - **Structured Figma files**: depth-1 children are usually FRAME or GROUP nodes that represent visual sections. Use them directly.
+   - **Messy/flat Figma files**: depth-1 children are loose primitives. Group them by y-position — nodes within ~50px vertical gap belong together. Name them by what they ARE visually (hero, features, testimonials), not by their Figma layer name.
+
+3. **Make a section list** with node IDs, names, and approximate roles. This is the input for the subagent step.
+
+## Step 3: Analyze sections with subagents
+
+**For each visual section**, spawn a subagent using the `Agent` tool (subagent_type: "general-purpose"). The subagent does ALL the visual work — reading screenshots, examining tree details, writing implementation notes.
+
+**Spawn sections in parallel where possible** (2-3 at a time) to maximize speed.
+
+### Subagent prompt template
+
+Give each subagent a prompt like this:
+
+```
+You are analyzing ONE section of a Figma design for Treble's design planner.
+
+## Your section
+- Frame: "{FrameName}"
+- Section node ID: "{nodeId}"
+- Section name: "{nodeName}"
+- Approximate role: "{role}" (e.g. "hero", "navbar", "footer", "features grid")
+
+## What to do
+
+1. Render the section screenshot:
    ```bash
-   ls .treble/figma/{frame-slug}/sections/
+   treble show "{nodeId}" --frame "{FrameName}" --json
    ```
-   Then read each section image for visual context.
+   Then `Read` the saved PNG to see the visual.
 
-## Step 2.5: Zoom into every visual group
+2. Get structural details:
+   ```bash
+   treble tree "{FrameName}" --root "{nodeId}" --verbose
+   treble tree "{FrameName}" --root "{nodeId}" --json
+   ```
 
-The full-page reference.png shows the overall layout but NOT the details you need to write implementation notes. You must zoom into each visual group.
+3. If the section looks complex (lots of small elements, dense UI, multiple card types, forms), zoom into sub-groups:
+   ```bash
+   treble tree "{FrameName}" --root "{nodeId}" --depth 1
+   ```
+   Then `treble show` and `Read` each sub-group.
 
-**For EVERY frame:**
+4. Check for extracted source images:
+   ```bash
+   cat .treble/figma/{frameSlug}/image-map.json 2>/dev/null
+   ```
+   If `image-map.json` exists, it maps imageRef hashes to local files in `assets/`. Use these
+   to identify which components contain real photos/backgrounds vs decorative elements.
+   If missing, run `treble extract --frame "{frameName}"` first.
 
-1. `treble tree "{FrameName}" --depth 1` — identify all visual groups (sections, rows, panels)
-2. **For each group** — things that visually belong together (a nav, a hero, a card grid, a footer):
-   a. `treble show "<nodeId>" --frame "{FrameName}" --json` — render it as a close-up. The `--json` flag returns `{"nodeId", "nodeName", "path", "size", "scale"}` so you can capture the saved path.
-   b. `Read` the saved PNG — now you can actually see button shapes, icon details, typography, spacing, gradients, shadows
-   c. **If the section looks complex** (lots of small elements, dense UI, multiple card types, forms with many fields) — zoom in further. Use `treble tree --root "<groupId>" --depth 1` to find sub-groups, then `treble show` each one. Keep zooming until you can clearly see every element.
-   d. `treble tree "{FrameName}" --root "<nodeId>" --verbose` — get fills, fonts, padding, radius
-   e. `treble tree "{FrameName}" --root "<nodeId>" --json` — get machine-readable measurements
-   f. Write your implementation notes for this group BEFORE moving to the next
-   g. **Record every screenshot path** — save them in the component's `referenceImages` array (see schema below). These are how the build agent and comparison tools find the visual references later.
+5. Identify components (reusable UI patterns):
+   - Buttons, Inputs, Badges, Labels, Links, Icons, Cards, etc.
+   - Name by ROLE, not by Figma layer name
+   - One component per distinct UI pattern
+   - Note which Figma node ID corresponds to each component
+   - Classify each: code | svg-extract | icon-library | image-extract
+   - Match to shadcn/ui if applicable (Button, Input, Card, Badge, etc.) with confidence 0.0-1.0
+   - For `image-extract` components: reference the `image-map.json` entry — include `imageRef` and `localPath`
 
-**How to identify groups:**
-- **Structured Figma files**: depth-1 children are usually FRAME or GROUP nodes that represent visual sections. Use them directly.
-- **Messy/flat Figma files**: depth-1 children are loose primitives. Group them by y-position — nodes within ~50px vertical gap belong together. Name them by what they ARE visually (hero, features, testimonials), not by their Figma layer name.
+5. Write DETAILED implementation notes for this section AND each component in it. Describe:
+   - Layout technique (flex, grid, absolute)
+   - Background treatment (solid, gradient, image+overlay)
+   - Typography (font, size, weight, color, spacing)
+   - Shape/borders (radius, border-width/color)
+   - Spacing (padding, gaps, margins)
+   - Visual effects (shadows, opacity, hover states)
+   - Icon handling (which icon library, size)
+   - Image handling (aspect ratio, object-fit, overlay)
 
-**NEVER read the full nodes.json for a 300+ node frame.** It will flood your context and degrade analysis quality. Use the slice tools above instead.
+6. Check `image-map.json` for extracted source images in this frame:
+   ```bash
+   cat .treble/figma/{frameSlug}/image-map.json 2>/dev/null
+   ```
+   If entries exist, match imageRef hashes to nodes in this section. For components that use
+   real photos/backgrounds (not just solid fills), set `assetKind: "image-extract"` and include
+   `extractedImages: [{imageRef, localPath}]`. Read the actual image file if needed to understand
+   what the photo depicts.
 
-## Step 2.6: Handling messy/unstructured Figma files
+7. Return your analysis as a JSON object with this structure:
+   ```json
+   {
+     "sectionName": "NavBar",
+     "sectionNodeId": "322:100",
+     "components": {
+       "ComponentName": {
+         "tier": "atom|molecule|organism",
+         "description": "...",
+         "figmaNodes": [{"nodeId": "...", "nodeName": "...", "frameId": "...", "frameName": "..."}],
+         "shadcnMatch": {"component": "button", "confidence": 0.95} | null,
+         "variants": [],
+         "props": [],
+         "tokens": {},
+         "composedOf": [],
+         "assetKind": "code|svg-extract|icon-library|image-extract",
+         "referenceImages": ["path/to/screenshot.png"],
+         "implementationNotes": "DETAILED notes..."
+       }
+     },
+     "sectionEntry": {
+       "name": "NavBar",
+       "componentName": "NavBar",
+       "order": 0,
+       "y": 0,
+       "height": 64,
+       "background": "#ffffff",
+       "fullWidth": true,
+       "containedAtoms": ["Logo", "NavLink", "Button"],
+       "referenceImages": ["path/to/section.png"],
+       "implementationNotes": "DETAILED section layout notes..."
+     },
+     "designTokens": {
+       "colors": [{"hex": "#1F3060", "usage": "primary background"}],
+       "fonts": [{"family": "Aeonik", "sizes": [15, 18, 48]}],
+       "radii": [8, 9999],
+       "shadows": []
+     }
+   }
+   ```
 
-If the depth-1 children are mostly loose primitives (RECTANGLE, TEXT, VECTOR, unnamed GROUPs) rather than organized FRAME groups:
-
-1. **The reference.png screenshot is your PRIMARY source of truth.** Look at it first and identify the visual sections (hero, nav, features, footer, etc.)
-2. **Group depth-1 nodes into virtual sections by y-position.** Sort by y coordinate from the tree output. Nodes within a ~50px vertical gap belong to the same visual section.
-3. **Name sections by their ROLE, not their Figma layer name.** "Frame 47" → "HeroSection". "Rectangle 2388778" → irrelevant, look at what it IS visually.
-4. **Use `treble show` to verify.** Render individual nodes to confirm what they look like: `treble show "55:1234" --frame "{FrameName}"`
-5. Many loose nodes may be background elements, spacers, or design artifacts. If a node is a single RECTANGLE with no children and no text, it's likely a background — note it but don't create a component for it.
-
-## Step 3: Analyze section by section
-
-For each visual section you identified, gather context using the slice tools.
-
-### How to see a specific node
-
-This is a 3-step process. Here's a complete walkthrough with real output.
-
-**1. Get the node ID from the tree overview:**
-
-```bash
-treble tree "Homepage" --depth 1
+IMPORTANT: Return ONLY the JSON object as your final output. No markdown, no commentary.
 ```
 
-Example output:
-```
-Frame: "Homepage" (254:2234) — 370 nodes
-  Size: 1440x826
+### Handling messy/unstructured Figma files
 
-FRAME Homepage [1440x7228] 254:1863 (159 children)
-  RECT Rectangle 2386630 [1440x800] 250:1019
-  RECT Rectangle 2388772 [853x800] 254:2232
-  GRP Group 1171277834 [115x40] 254:1876 (2 children)
-  TEXT About [52x26] 254:1871 "About"
-  TEXT Careers [65x26] 254:1872 "Careers"
-  ...
-```
+If depth-1 children are mostly loose primitives (RECTANGLE, TEXT, VECTOR):
 
-Each line shows: `TYPE Name [WIDTHxHEIGHT] NODE_ID`. The node ID (e.g. `254:1876`) is what you use for slicing.
+1. In the main context, group nodes by y-position into virtual sections
+2. For each virtual section, pass multiple node IDs to the subagent:
+   ```
+   Section node IDs: "55:100", "55:101", "55:102" (y range 0-200)
+   ```
+3. The subagent uses `treble show` on individual nodes to understand what they are
 
-**2. Render the node as a screenshot** (calls Figma API, saves PNG to disk):
+## Step 4: Merge subagent results into analysis.json
 
-```bash
-treble show "254:1876" --frame "Homepage" --json
-```
+Once all subagents return, merge their results in the main context:
 
-Output:
-```json
-{"nodeId":"254:1876","nodeName":"Group 1171277834","path":".treble/figma/homepage/snapshots/group-1171277834.png","size":4832,"scale":2}
-```
+1. **Deduplicate components** — if "Button" appears in multiple sections, merge into one entry with multiple figmaNodes
+2. **Build the design system** — collect all design tokens across sections, find the repeated ones
+3. **Determine build order** — assets first, atoms, molecules, organisms, pages last. Respect `composedOf` dependencies.
+4. **Assemble pages** — list sections in order (by y-position) with their components
 
-The `path` field is relative to the project root. Save this path in the component's `referenceImages` array.
-
-**3. Read the saved screenshot** (now you can see it):
-
-```
-Read .treble/figma/homepage/snapshots/group-1171277834.png
-```
-
-The file is at `.treble/figma/{frame-slug}/snapshots/{slugified-node-name}.png`. The exact path is printed by `treble show`.
-
-**4. Get the structural details** (colors, fonts, sizes):
-
-```bash
-treble tree "Homepage" --root "254:1876" --verbose
-```
-
-Example output:
-```
-Frame: "Homepage" (254:2234) — 3 nodes
-  Root: "254:1876"
-
-GRP Group 1171277834 [115x40] 254:1876 (2 children)
-  radius: 8
-  RECT Rectangle 71 [115x40] 254:1877
-    fill: #cdb07a
-    radius: 8
-  TEXT Solutions [93x21] 254:1878 "Solutions"
-    font: Aeonik TRIAL 15.37px w400
-    fill: #25282a
-```
-
-Or for machine-readable JSON:
-
-```bash
-treble tree "Homepage" --root "254:1876" --json
-```
-
-```json
-{
-  "frame": "Homepage",
-  "frameId": "254:2234",
-  "nodeCount": 3,
-  "nodes": [
-    {
-      "id": "254:1876", "name": "Group 1171277834", "type": "GROUP",
-      "depth": 0, "width": 115, "height": 40, "x": -3308, "y": 784,
-      "children": 2, "radius": 8
-    },
-    {
-      "id": "254:1877", "name": "Rectangle 71", "type": "RECTANGLE",
-      "depth": 1, "width": 115, "height": 40, "fills": ["#cdb07a"], "radius": 8
-    },
-    {
-      "id": "254:1878", "name": "Solutions", "type": "TEXT",
-      "depth": 1, "width": 93, "height": 21, "text": "Solutions",
-      "fills": ["#25282a"], "font": { "family": "Aeonik TRIAL", "size": 15.37, "weight": 400 }
-    }
-  ]
-}
-```
-
-### Full section-by-section workflow
-
-```bash
-# 1. Get all section IDs
-treble tree "Homepage" --depth 1
-
-# 2. Pick a section by its node ID and render it
-treble show "254:1876" --frame "Homepage" --json
-# → {"nodeId":"254:1876","nodeName":"Group 1171277834","path":".treble/figma/homepage/snapshots/group-1171277834.png","size":4832,"scale":2}
-
-# 3. Look at the rendered screenshot (path from step 2 output)
-Read .treble/figma/homepage/snapshots/group-1171277834.png
-
-# 4. If it looks complex, zoom into sub-groups
-treble tree "Homepage" --root "254:1876" --depth 1
-# → find child group IDs, then treble show each one
-
-# 5. Get the structural details as JSON
-treble tree "Homepage" --root "254:1876" --json
-```
-
-Repeat for each section. You now have both the visual (screenshot) and structural (JSON) data for one piece of the page without loading the entire node tree.
-
-For each section you zoomed into, do TWO things: identify components, and write visual reproduction notes.
-
-### 3a. Identify components (reusable UI patterns)
-- Buttons, Inputs, Badges, Labels, Links, Icons, Cards, etc.
-- Name by ROLE, not by Figma layer name
-- One component per distinct UI pattern — "Primary Button" and "Ghost Button" = one Button with variants
-- Note which Figma node ID corresponds to each component
-
-**Asset classification** — how each component should be built:
-- `code` — standard React component (default)
-- `svg-extract` — vector icons/logos. **Reality check:** `treble show` renders PNGs, not SVGs. For svg-extract assets, describe the shape, colors, and approximate dimensions in your notes so the build agent can write an inline SVG placeholder. Do NOT block the build order on SVG extraction — place svg-extract assets early in the build order but mark them with `"placeholder": true` so the build agent writes a simple SVG stand-in that can be swapped later.
-- `icon-library` — matches a known icon library (Lucide: Mail, Phone, ArrowRight, Check, Menu, X, Search, etc.). **Prefer this over svg-extract** whenever a Lucide icon is a reasonable match — it's more robust and doesn't require manual asset extraction.
-- `image-extract` — photos, illustrations → extract as image files. Since images need manual export from Figma, include `placeholderColor` (dominant color from the image area) and `aspectRatio` in the component definition so the build agent can render a colored placeholder `<div>` with the correct dimensions.
-
-**shadcn/ui anchoring** — match to primitives where possible:
-- Button, Input, Label, Badge, Card, Dialog, DropdownMenu, Select, Textarea, Avatar, etc.
-- This tells the build phase to USE shadcn instead of building from scratch
-- Include a confidence score (0.0–1.0)
-
-**Design tokens** — extract from `--verbose` or `--json`:
-- Colors (hex values from fills — focus on repeated colors, not one-offs)
-- Typography (font family, size, weight, line height)
-- Spacing (padding, gaps from auto-layout)
-- Border radius, shadows
-
-### 3b. Visual reproduction notes (CRITICAL)
-
-This is the most important part of the analysis. For every component and every section, you must write **implementation notes** that describe HOW to reproduce the visual look in code. These notes are what the build agent will use to actually write correct CSS/Tailwind.
-
-**What to capture for each component:**
-
-- **Layout technique**: flexbox row vs column, grid, absolute positioning, sticky, etc.
-- **Background treatment**: solid color, gradient (direction + stops), image with overlay, blur/backdrop-filter
-- **Typography details**: exact font, size, weight, letter-spacing, line-height, text color, truncation behavior
-- **Shape and borders**: border-radius (pill vs rounded-md vs sharp), border width/color/style, outline vs border
-- **Spacing**: internal padding, gap between children, margin from neighbors
-- **Visual effects**: shadows (box-shadow values), opacity, hover states (if implied by design), transitions
-- **Icon handling**: which icon library matches, size relative to text, stroke vs fill
-- **Image handling**: aspect ratio, object-fit behavior, rounded corners, overlay treatment
-- **Responsive hints**: does this look like it stacks on mobile? Full-width or max-width container?
-
-**Example of GOOD reproduction notes:**
-
-```
-"implementationNotes": "Dark hero section. Full-width with 800px height. Background is a photo
-(image-extract) with a linear-gradient overlay from rgba(0,0,0,0.7) left to transparent right.
-Heading is 56px Aeonik Bold, white, max-width ~600px, left-aligned. Subtext is 18px weight 400,
-white/70% opacity, 24px below heading. CTA button is pill-shaped (rounded-full), gold background
-(#CDB07A), dark text (#25282A), 15px font, 40px height, with a right-arrow icon (Lucide ArrowRight).
-Layout is flex-col items-start justify-center with ~80px left padding. The entire section has no
-visible border or shadow."
-```
-
-**Example of BAD notes (too vague — useless to the build agent):**
-
-```
-"implementationNotes": "Hero section with heading and button"
-```
-
-The difference between a pixel-perfect build and a generic-looking build is entirely in these notes. Take the time to describe what you see.
-
-### 3c. Generate `projectSetup` (CRITICAL)
-
-The analysis must produce an executable project setup that the build agent runs BEFORE writing any component. Without this, the build agent will generate code that references nonexistent Tailwind classes, missing fonts, or uninstalled shadcn components.
-
-**Generate these from your design system analysis:**
-
-1. **Tailwind config overrides** — exact `theme.extend` entries for colors, fonts, border-radius, and any custom values. Map every design token to a Tailwind class name. Use semantic names (e.g., `primary`, `accent`, `surface`) not Figma layer names.
-
-2. **Font declarations** — `@font-face` rules or Google Fonts import URLs. For each font family used in the design:
-   - Identify the font name and weights used
-   - Check if it's a Google Font, Adobe Font, or local-only
-   - If it's a trial/proprietary font (e.g., "Aeonik TRIAL"), note the closest free alternative as a fallback
-   - Generate the CSS `@font-face` or `@import` declaration
-
-3. **Global CSS** — base styles that apply page-wide: body background color, default text color, font-smoothing, any CSS custom properties needed.
-
-4. **shadcn components to install** — list every shadcn component matched in the analysis. The build agent will run `npx shadcn@latest add <name>` for each.
-
-5. **npm dependencies** — any packages needed beyond the framework defaults (e.g., `lucide-react` for icons, `embla-carousel-react` for carousels).
-
-6. **Setup commands** — ordered list of shell commands to bootstrap the project. These run once before any component code is written.
-
-### 3d. Generate `tailwindClasses` per component
-
-For every component, pre-compute the Tailwind class strings the build agent should use. This eliminates interpretation errors — the build agent copies these classes directly rather than trying to translate `implementationNotes` into Tailwind.
-
-**Format:**
-```json
-"tailwindClasses": {
-  "container": "flex items-center justify-between h-16 px-6 max-w-7xl mx-auto",
-  "primary": "bg-[#CDB07A] text-[#25282A] rounded-full px-6 h-10 text-[15px]",
-  "heading": "text-5xl font-bold leading-tight tracking-tight text-white"
-}
-```
-
-Keys should be semantic — `container`, `wrapper`, `heading`, `subtext`, `cta`, or variant names like `primary`, `ghost`, `outline`. The build agent uses these as the SOURCE OF TRUTH for styling.
-
-**Rules for tailwindClasses:**
-- Use the custom theme values from `projectSetup.tailwindConfig` where they exist (e.g., `bg-primary` instead of `bg-[#1F3060]`)
-- Fall back to arbitrary values `[#hex]` only when no theme token exists
-- Include responsive prefixes if the design implies breakpoint behavior
-- Each key maps to a single element or variant — don't combine unrelated elements
-
-### 3e. Robustness checklist
-
-Before finalizing the analysis, verify:
-
-1. **Every font has a fallback.** If the design uses a proprietary or trial font, specify a system/Google font fallback in `projectSetup.fonts[].fallback`. The build agent must be able to render SOMETHING even without the exact font.
-
-2. **Every color is in the palette.** Scan all `implementationNotes` and `tailwindClasses` for hex values. Every hex should appear in `designSystem.palette`. If you find one-off colors, either add them to the palette or note them as `designSystem.inconsistencies`.
-
-3. **Every `composedOf` dependency exists.** If component A lists component B in `composedOf`, component B MUST exist in the `components` map and appear earlier in `buildOrder`.
-
-4. **Every `shadcnMatch` component is in `projectSetup.shadcnComponents`.** The build agent installs these before writing code.
-
-5. **Build order has no orphans.** Every component in the `components` map must appear in `buildOrder`. Every entry in `buildOrder` must exist in `components`.
-
-6. **svg-extract assets have shape descriptions.** Since treble can't export SVGs, every svg-extract component must have enough detail in `implementationNotes` to write a placeholder SVG (shape, viewBox dimensions, fill color, stroke).
-
-7. **image-extract assets have placeholder info.** Every image-extract component must have `placeholderColor` and `aspectRatio` so the build renders a reasonable stand-in.
-
-8. **No component references nonexistent Tailwind classes.** Cross-reference `tailwindClasses` values against the theme config. If a class like `text-primary` is used, `primary` must be in `projectSetup.tailwindConfig.theme.extend.colors`.
-
-## Step 4: Write analysis.json
-
-Write the analysis to `.treble/analysis.json` with this structure:
+Write the analysis to `.treble/analysis.json`:
 
 ```json
 {
   "version": 2,
   "figmaFileKey": "from-.treble/config.toml",
   "analyzedAt": "ISO-8601 timestamp",
-  "projectSetup": {
-    "tailwindConfig": {
-      "theme": {
-        "extend": {
-          "colors": {
-            "primary": "#1F3060",
-            "accent": "#CDB07A",
-            "surface": "#F8F9FA"
-          },
-          "fontFamily": {
-            "heading": ["Aeonik TRIAL", "Inter", "sans-serif"],
-            "body": ["Neue Haas Grotesk", "system-ui", "sans-serif"]
-          },
-          "borderRadius": {
-            "pill": "9999px"
-          }
-        }
-      }
-    },
-    "fonts": [
-      {
-        "family": "Aeonik TRIAL",
-        "weights": [400, 700],
-        "source": "local",
-        "fallback": "Inter, sans-serif",
-        "notes": "Trial font — may need license or swap to Inter for production"
-      }
-    ],
-    "globalCSS": "@layer base {\n  body {\n    @apply bg-white text-gray-900 antialiased;\n    font-family: 'Neue Haas Grotesk', system-ui, sans-serif;\n  }\n}",
-    "dependencies": ["lucide-react"],
-    "shadcnComponents": ["button", "card", "badge", "input"],
-    "setupCommands": [
-      "npx shadcn@latest init -d",
-      "npx shadcn@latest add button card badge input",
-      "npm install lucide-react"
-    ]
-  },
   "designSystem": {
-    "palette": [{ "name": "primary", "hex": "#1F3060", "tailwind": "primary" }],
+    "palette": [{ "name": "primary", "hex": "#1F3060", "tailwind": "blue-900" }],
     "typeScale": [{ "name": "heading-1", "size": 48, "weight": 700, "lineHeight": 1.2, "tailwind": "text-5xl font-bold" }],
     "spacing": { "baseUnit": 4, "commonGaps": [8, 16, 24, 32, 48] },
-    "borderRadius": [{ "name": "full", "value": 9999, "tailwind": "rounded-pill" }],
+    "borderRadius": [{ "name": "full", "value": 9999, "tailwind": "rounded-full" }],
     "shadows": [],
-    "fonts": [
-      { "family": "Aeonik TRIAL", "role": "headings + buttons", "fallback": "Inter" },
-      { "family": "Neue Haas Grotesk", "role": "body text", "fallback": "system-ui" }
-    ],
     "inconsistencies": []
   },
   "components": {
@@ -418,77 +237,27 @@ Write the analysis to `.treble/analysis.json` with this structure:
       "variants": ["primary", "ghost", "outline"],
       "props": ["children: ReactNode", "variant: 'primary' | 'ghost' | 'outline'"],
       "tokens": { "bg": "#1F3060", "radius": "rounded-full", "px": "px-8" },
-      "tailwindClasses": {
-        "primary": "bg-accent text-[#25282A] rounded-pill px-6 h-10 text-[15px] font-normal hover:brightness-110 transition-all",
-        "ghost": "bg-transparent text-white border border-white/30 rounded-pill px-6 h-10 text-[15px] hover:bg-white/10 transition-all"
-      },
       "composedOf": [],
       "assetKind": "code",
       "filePath": "src/components/Button.tsx",
       "referenceImages": [".treble/figma/contact/snapshots/button.png"],
+      "extractedImages": [],
       "implementationNotes": "Pill-shaped button (rounded-full). Primary: bg #CDB07A, text #25282A, 15px Aeonik w400, height 40px, px-6. Ghost: transparent bg, white text, 1px white/30 border. Both have subtle hover brightness increase. Right-arrow Lucide icon when used as CTA (ArrowRight, 16px, ml-2)."
     },
-    "EnjoinLogo": {
+    "HeroBackground": {
       "tier": "atom",
-      "description": "Company logo — SVG wordmark",
-      "figmaNodes": [{ "nodeId": "55:5678", "nodeName": "Logo", "frameId": "322:1", "frameName": "Contact" }],
-      "shadcnMatch": null,
-      "variants": ["light", "dark"],
-      "props": ["variant: 'light' | 'dark'", "className?: string"],
-      "tokens": {},
-      "tailwindClasses": {
-        "container": "h-8 w-auto"
-      },
-      "composedOf": [],
-      "assetKind": "svg-extract",
-      "placeholder": true,
-      "filePath": "src/components/icons/EnjoinLogo.tsx",
-      "referenceImages": [".treble/figma/contact/snapshots/logo.png"],
-      "implementationNotes": "SVG wordmark, approximately 120x32px. Light variant: white fill. Dark variant: #1F3060 fill. Simple text wordmark 'ENJOIN' in a custom sans-serif. BUILD AGENT: write a placeholder <svg> with a <text> element; the real SVG will be swapped in later."
-    },
-    "HeroImage": {
-      "tier": "atom",
-      "description": "Hero background photo of healthcare professionals",
-      "figmaNodes": [{ "nodeId": "322:99", "nodeName": "HeroPhoto", "frameId": "322:1", "frameName": "Contact" }],
-      "shadcnMatch": null,
-      "variants": [],
-      "props": ["src?: string", "alt?: string"],
-      "tokens": {},
-      "tailwindClasses": {
-        "container": "absolute inset-0 w-full h-full object-cover"
-      },
-      "composedOf": [],
-      "assetKind": "image-extract",
-      "placeholderColor": "#2A4A4A",
-      "aspectRatio": "16/9",
-      "filePath": "src/components/HeroImage.tsx",
-      "referenceImages": [".treble/figma/contact/snapshots/hero-photo.png"],
-      "implementationNotes": "Full-bleed background photo, 1440x800. Shows healthcare professionals. BUILD AGENT: render a <div> with bg-[#2A4A4A] and the correct aspect ratio as placeholder. Accept src prop for when real image is added."
-    },
-    "HeroSection": {
-      "tier": "organism",
-      "description": "Hero banner with headline, subtitle, and CTA button",
-      "figmaNodes": [{ "nodeId": "322:100", "nodeName": "Hero", "frameId": "322:1", "frameName": "Contact" }],
+      "description": "Full-width hero background photo",
+      "figmaNodes": [{"nodeId": "55:1300", "nodeName": "hero-bg", "frameId": "322:1", "frameName": "Contact"}],
       "shadcnMatch": null,
       "variants": [],
       "props": [],
-      "tokens": { "bg": "#F8F9FA" },
-      "tailwindClasses": {
-        "wrapper": "relative w-full h-[800px] overflow-hidden",
-        "overlay": "absolute inset-0 bg-gradient-to-r from-black/70 to-transparent",
-        "content": "relative z-10 flex flex-col items-start justify-center h-full pl-20 max-w-[600px]",
-        "heading": "text-[56px] font-heading font-bold leading-tight tracking-tight text-white",
-        "subtitle": "text-lg font-body font-normal text-white/70 mt-6",
-        "cta": "mt-8"
-      },
-      "composedOf": ["HeroImage", "Button"],
-      "assetKind": "code",
-      "filePath": "src/components/HeroSection.tsx",
-      "referenceImages": [
-        ".treble/figma/contact/snapshots/hero.png",
-        ".treble/figma/contact/snapshots/hero-cta-button.png"
-      ],
-      "implementationNotes": "Full-width section, 800px height. Background: photo (image-extract 'hero-bg.jpg') with linear-gradient overlay from rgba(0,0,0,0.7) on left to transparent on right (bg-gradient-to-r). Content is flex-col items-start justify-center, pl-20, max-w-[600px]. Heading: 56px Aeonik Bold, white, leading-tight, tracking-tight. Subtitle: 18px w400, white/70 opacity, mt-6. CTA Button (primary variant) mt-8. No border, no shadow on section itself."
+      "tokens": {},
+      "composedOf": [],
+      "assetKind": "image-extract",
+      "filePath": "public/images/hero-bg.png",
+      "referenceImages": [],
+      "extractedImages": [{"imageRef": "c070d24c...", "localPath": "assets/c070d24c.png"}],
+      "implementationNotes": "Source image extracted from Figma. Copy to public/images/ and use as <img> or background-image."
     }
   },
   "pages": {
@@ -506,18 +275,16 @@ Write the analysis to `.treble/analysis.json` with this structure:
           "fullWidth": true,
           "containedAtoms": ["Logo", "NavLink", "Button"],
           "referenceImages": [".treble/figma/contact/snapshots/navbar.png"],
-          "implementationNotes": "Sticky top nav, white bg, subtle bottom border (1px #E5E7EB). Flex row justify-between items-center, max-w-7xl mx-auto, h-16, px-6. Logo left, nav links center (flex gap-8, 15px Aeonik w400 text-gray-700 hover:text-black), CTA button right (primary variant, small size)."
+          "implementationNotes": "Sticky top nav, white bg, subtle bottom border (1px #E5E7EB)."
         }
       ],
       "pageComponentName": "ContactPage",
       "analyzedAt": "ISO-8601 timestamp"
     }
   },
-  "buildOrder": ["EnjoinLogo", "HeroImage", "NavLink", "Button", "Input", "Label", "Heading", "Paragraph", "NavBar", "HeroSection", "ContactFormSection", "Footer", "ContactPage"]
+  "buildOrder": ["Logo", "NavLink", "Button", "Input", "NavBar", "HeroSection", "Footer", "ContactPage"]
 }
 ```
-
-**Note on the schema:** The `projectSetup` block is the FIRST thing the build agent reads and executes. Every `tailwindClasses` value references theme tokens defined in `projectSetup.tailwindConfig`. This creates a closed loop — nothing in the components can reference a class that doesn't exist.
 
 ### Validating figmaNode references
 
@@ -554,4 +321,4 @@ Tell the user:
 - Which shadcn/ui components matched
 - The build order
 - Commit: `git add .treble/ && git commit -m "chore: analyze {FrameName} design"`
-- Next step: `/treble:dev` to start building
+- Next step: **start a new session**, then run `/treble:dev` to start building

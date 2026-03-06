@@ -52,6 +52,10 @@ enum Commands {
         #[arg(long)]
         page: Option<String>,
 
+        /// Only sync a specific node ID or Figma URL (e.g. "254:1863" or a "Copy link to selection" URL)
+        #[arg(long)]
+        node: Option<String>,
+
         /// Re-sync all frames even if already synced
         #[arg(long)]
         force: bool,
@@ -81,6 +85,13 @@ enum Commands {
         /// Output as JSON instead of colored text (for agent consumption)
         #[arg(long)]
         json: bool,
+    },
+
+    /// Extract source images from Figma IMAGE fills to .treble/figma/{slug}/assets/
+    Extract {
+        /// Only extract images from frames matching this name (substring match)
+        #[arg(long)]
+        frame: Option<String>,
     },
 
     /// Render a specific Figma node and save the screenshot to disk
@@ -113,9 +124,10 @@ async fn main() -> Result<()> {
             server,
         } => commands::login::run(pat, figma_token, server).await,
         Commands::Init { figma, flavor } => commands::init::run(figma, flavor).await,
-        Commands::Sync { frame, page, force, interactive } => {
-            commands::sync::run(frame, page, force, interactive).await
+        Commands::Sync { frame, page, node, force, interactive } => {
+            commands::sync::run(frame, page, node, force, interactive).await
         }
+        Commands::Extract { frame } => commands::extract::run(frame).await,
         Commands::Tree {
             frame,
             depth,

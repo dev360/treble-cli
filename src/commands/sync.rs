@@ -17,7 +17,7 @@ use crate::figma::client::{flatten_node_tree, FigmaClient};
 use crate::figma::types::{
     assign_unique_slugs, slugify, FigmaManifest, FlatNode, FrameManifestEntry,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashSet;
@@ -30,9 +30,35 @@ struct FrameInfo {
     short_id: String, // e.g. "f01", "f02"
 }
 
+/// Extract a node ID from a Figma URL or raw ID string.
+/// Handles:
+///   - "254:1863" (raw ID)
+///   - "254-1863" (URL-encoded format)
+///   - "https://www.figma.com/design/KEY/name?node-id=254-1863&..."
+fn extract_node_id(input: &str) -> String {
+    let input = input.trim();
+
+    // If it contains figma.com, parse the node-id query param
+    if input.contains("figma.com") {
+        if let Some(query_start) = input.find('?') {
+            let query = &input[query_start + 1..];
+            for param in query.split('&') {
+                if let Some(value) = param.strip_prefix("node-id=") {
+                    // URL format uses dashes: "254-1863" → "254:1863"
+                    return value.replace('-', ":");
+                }
+            }
+        }
+    }
+
+    // Raw ID — normalize dashes to colons
+    input.replace('-', ":")
+}
+
 pub async fn run(
     frame_filter: Option<String>,
     page_filter: Option<String>,
+    node_filter: Option<String>,
     force: bool,
     interactive: bool,
 ) -> Result<()> {
@@ -90,8 +116,70 @@ pub async fn run(
     }
 
     // ── Step 2b: Filter frames ──────────────────────────────────────────
+    let node_id = node_filter.map(|n| extract_node_id(&n));
+
     let selected_indices: Vec<usize> = if interactive {
         interactive_select(&file.document.children, &all_frames)?
+    } else if let Some(ref target_id) = node_id {
+        // --node: exact match on frame ID, or find the parent frame containing this node
+        let mut matches: Vec<usize> = all_frames
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.id == *target_id)
+            .map(|(i, _)| i)
+            .collect();
+
+        if matches.is_empty() {
+            // The node ID might be a child inside a frame — search depth-2 data
+            println!(
+                "  {} {} is not a top-level frame — searching parent...",
+                "→".dimmed(),
+                target_id.dimmed()
+            );
+
+            for (i, frame) in all_frames.iter().enumerate() {
+                for page in &file.document.children {
+                    for child in &page.children {
+                        let child_id = child
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if child_id != frame.id {
+                            continue;
+                        }
+                        // Check depth-1 children of this frame
+                        if let Some(children) = child.get("children").and_then(|v| v.as_array()) {
+                            for grandchild in children {
+                                let gc_id = grandchild
+                                    .get("id")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                if gc_id == *target_id {
+                                    println!(
+                                        "  {} Found inside \"{}\" ({})",
+                                        "→".dimmed(),
+                                        frame.name.bold(),
+                                        frame.id.dimmed()
+                                    );
+                                    matches.push(i);
+                                }
+                            }
+                        }
+                    }
+                }
+                if !matches.is_empty() {
+                    break;
+                }
+            }
+        }
+
+        if matches.is_empty() {
+            anyhow::bail!(
+                "Node {} not found at depth 2. Try --frame or --interactive instead.",
+                target_id
+            );
+        }
+        matches
     } else {
         // Apply CLI filters
         all_frames
@@ -137,7 +225,7 @@ pub async fn run(
             .collect()
     };
 
-    let is_filtered = frame_filter.is_some() || page_filter.is_some() || interactive;
+    let is_filtered = frame_filter.is_some() || page_filter.is_some() || node_id.is_some() || interactive;
     println!("  {} frames to sync\n", frames.len());
 
     // ── Step 3: Load existing manifest for diff + incremental sync ─────
@@ -442,6 +530,20 @@ pub async fn run(
             orphaned.len()
         );
     }
+
+    // ── Step 7: Auto-extract source images ──────────────────────────
+    println!();
+    match super::extract::run(None).await {
+        Ok(()) => {}
+        Err(e) => {
+            eprintln!(
+                "  {} Image extraction failed (non-fatal): {}",
+                "!".yellow(),
+                e
+            );
+        }
+    }
+
     println!("\nChanges visible via: {}", "git diff .treble/".bold());
 
     Ok(())

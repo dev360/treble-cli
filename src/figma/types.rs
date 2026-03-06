@@ -61,6 +61,45 @@ pub struct MeResponse {
     pub handle: String,
 }
 
+// ── File images response (source image fills) ──────────────────────────
+// GET /v1/files/:key/images → resolves imageRef hashes to CDN URLs
+
+#[derive(Debug, Deserialize)]
+pub struct FileImagesResponse {
+    pub meta: FileImagesMeta,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FileImagesMeta {
+    pub images: HashMap<String, String>,
+}
+
+// ── Image map (on-disk, per-frame) ──────────────────────────────────────
+
+/// Written to .treble/figma/{slug}/image-map.json
+/// Maps imageRef hashes → local downloaded paths + usage info
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageMap {
+    pub file_key: String,
+    pub extracted_at: String,
+    pub entries: Vec<ImageMapEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageMapEntry {
+    pub image_ref: String,
+    pub local_path: String,
+    pub nodes: Vec<ImageNodeUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageNodeUsage {
+    pub node_id: String,
+    pub node_name: String,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+}
+
 // ── Flattened node for disk storage ─────────────────────────────────────
 
 /// A node from the Figma tree, flattened for on-disk storage.
