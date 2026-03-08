@@ -8,28 +8,118 @@ arguments:
 
 # /treble:dev — Build Loop
 
-You are Treble's build router. Your job is to set up a solid project foundation, determine the target stack, and hand off to the correct build skill.
+You are Treble's build router. Your job is to triage the design, choose the right deployment target, set up a solid project foundation, and hand off to the correct build skill.
 
-## Step 0: Project Setup (FIRST PRIORITY)
+## Step 0: Triage & Project Setup (FIRST PRIORITY)
 
-Before writing any components, ensure the project is a well-organized, **runnable** repository. If `package.json` already exists and the dev server starts, skip to "Determine the target".
+Before writing any components, classify the design, pick a deployment target, and ensure the project is a well-organized, **runnable** repository.
 
-### 0a. Determine the target stack
+If `package.json` already exists, the dev server starts, AND `.treble/build-state.json` has a `buildConfig` section, skip to "Hand off".
 
-Check in this order:
+### 0a. Classify the design
 
-1. `.treble/analysis.json` → `metadata.target` field (if already set)
-2. `package.json` with `next` dependency → **Next.js** (shadcn target)
-3. `package.json` with `astro` dependency → **Astro** (shadcn target)
-4. `package.json` with `react` (but no framework) → **Vite + React** (shadcn target)
-5. `style.css` containing `Theme Name:` or `functions.php` present → **wordpress** target
-6. If unclear, **ask the user**: "Which framework do you want? Next.js (recommended for apps), Astro (recommended for content sites), or WordPress?"
+Read `.treble/analysis.json` and classify by the section/component signals present:
 
-For **shadcn** targets, also ask: **Next.js or Astro?**
-- **Next.js** — best for apps, dynamic content, API routes, SSR
-- **Astro** — best for content/marketing sites, static-first, islands architecture
+| Signals in analysis.json | Classification |
+|--------------------------|---------------|
+| Hero, testimonials, feature grids, CTA buttons, pricing cards | **marketing-website** |
+| Sidebar nav, data tables, forms, modals, tabs, breadcrumbs, user avatars | **web-app** |
+| Product cards, cart, checkout flows, pricing tables | **ecommerce** |
+| Article layout, author cards, tag lists, pagination | **blog** |
+| Gallery grids, case studies, project cards | **portfolio** |
 
-### 0b. Scaffold or verify the project
+Look at sections, component names, and page structure. If multiple categories fit, pick the dominant one.
+
+Tell the user what you found:
+
+> This looks like a **multi-page marketing website** with 5 pages.
+
+or
+
+> This looks like a **web application** with dashboard, settings, and user management views.
+
+### 0b. Present ranked deployment targets
+
+Based on the classification, present ranked options. **Always ask — never auto-select.**
+
+**Exclusion rules:**
+- **Exclude WordPress** if classification is `web-app` or `ecommerce` (no WP for SaaS UIs or custom storefronts)
+- **Rank Astro last** for `web-app` (shared state and auth are harder with islands architecture)
+- **Always include Next.js** — it works for everything
+
+For a **marketing-website**, **blog**, or **portfolio**:
+```
+Deployment options (ranked by fit):
+
+1. Next.js (Recommended) — SSR/SSG, best ecosystem, works with any CMS later
+2. Astro — static-first, faster for pure content sites
+3. WordPress — if you need WP hosting or existing WP infrastructure
+```
+
+For a **web-app**:
+```
+Deployment options (ranked by fit):
+
+1. Next.js (Recommended) — SSR/SSG, API routes, auth, shared state — built for this
+2. Astro — possible with React islands, but shared state and auth are harder than in Next.js
+
+(WordPress is not appropriate for this type of design.)
+```
+
+For **ecommerce**:
+```
+Deployment options (ranked by fit):
+
+1. Next.js (Recommended) — SSR/SSG, API routes for cart/checkout, best ecosystem
+2. Astro — static catalog pages with islands for interactive cart
+
+(WordPress is not appropriate for custom e-commerce UIs.)
+```
+
+Wait for the user to choose before continuing.
+
+### 0c. Ask where to place files (ALWAYS)
+
+After the deployment target is chosen, ask where to set up the project:
+
+```
+Where should I set up the project?
+
+Suggested: ./ (current directory)
+Or specify a path:
+```
+
+If the current directory already has a `package.json`, note it and offer:
+1. Build inside this existing project
+2. Create a new subdirectory (suggest a name based on the design)
+
+Wait for the user to confirm before continuing.
+
+### 0d. Record build config
+
+Write the triage decisions to `.treble/build-state.json` under a `buildConfig` key:
+
+```json
+{
+  "buildConfig": {
+    "classification": "marketing-website",
+    "deploymentTarget": "nextjs",
+    "outputDir": "/path/to/project",
+    "compatibleCms": ["sanity", "prismic"],
+    "buildSkill": "dev-shadcn"
+  }
+}
+```
+
+**Compatibility matrix:**
+
+| Deployment Target | Compatible CMS | Build Skill |
+|-------------------|---------------|-------------|
+| Next.js | sanity, prismic | dev-shadcn |
+| Astro | sanity, prismic | dev-shadcn |
+| WordPress | wordpress | dev-basecoat-wp |
+
+### 0e. Scaffold or verify the project
 
 If starting fresh (no `package.json`):
 
@@ -52,7 +142,7 @@ npx shadcn@latest init
 
 If `package.json` exists, verify: `npm install && npm run dev` works. If it doesn't, fix it first.
 
-### 0c. Project structure
+### 0f. Project structure
 
 Set up the feature-based directory structure (see `skills/dev-shadcn.md` for full rules):
 
@@ -75,7 +165,7 @@ public/
 
 **Rule:** If you're about to write a file to `src/components/`, stop and ask: "Is this used by 2+ features?" If not, it belongs in `src/features/{name}/components/`.
 
-### 0d. Testing setup (if appropriate)
+### 0g. Testing setup (if appropriate)
 
 Add a basic test runner. Skip for simple landing pages — add for apps with logic, forms, or interactivity.
 
@@ -98,7 +188,7 @@ import '@testing-library/jest-dom'
 
 Add `"test": "vitest"` to `package.json` scripts. Run `npm test` to verify.
 
-### 0e. Database / backend services (if needed)
+### 0h. Database / backend services (if needed)
 
 If the project needs a database (CMS, auth, etc.), use Docker so the repo is self-contained:
 
@@ -123,7 +213,7 @@ Add to `package.json` scripts: `"db:up": "docker compose up -d"`, `"db:down": "d
 
 For simpler needs (Payload CMS, small apps), prefer **SQLite** — no Docker required.
 
-### 0f. Git hygiene
+### 0i. Git hygiene
 
 ```bash
 git init  # if not already a repo

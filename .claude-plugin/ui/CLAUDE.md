@@ -89,7 +89,7 @@ Start broad, then drill in. Never read the full nodes.json for large frames.
 
 **analysis.json** — What to build. Written by `/treble:plan`. Components, design system, build order, Figma node references. Immutable after planning.
 
-**build-state.json** — Build progress. Written by `/treble:dev`. Status, file paths, review results per component. Updated as you build.
+**build-state.json** — Build progress. Written by `/treble:dev`. Contains `buildConfig` (classification, deployment target, output dir, compatible CMS, build skill) plus status, file paths, review results per component. Updated as you build.
 
 ## Version Control
 

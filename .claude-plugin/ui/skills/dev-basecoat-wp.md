@@ -374,4 +374,10 @@ After finishing (or stopping), tell the user:
 - How many components implemented vs planned vs skipped
 - Any components that failed visual or architectural review
 - The local URL to view the site (e.g. `http://localhost:8080`)
-- **Next step:** The pages are fully styled but content is hardcoded. Run the CMS editability agent to add ACF fields, custom blocks, and content management.
+
+**CMS nudge:**
+
+```
+Next step: make content editable.
+Run /treble:cms to add WordPress CMS editability (Gutenberg blocks).
+```

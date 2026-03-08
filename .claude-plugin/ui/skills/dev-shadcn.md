@@ -449,3 +449,11 @@ After finishing (or stopping), tell the user:
 - How many components implemented vs planned vs skipped
 - Any components that failed visual or architectural review
 - What to do next (run the dev server, test, etc.)
+
+**CMS nudge:** Read `.treble/build-state.json` → `buildConfig.compatibleCms` and tell the user:
+
+```
+Next step: make content editable.
+Compatible CMS options: {list from buildConfig.compatibleCms, e.g. "Sanity, Prismic"}
+Run /treble:cms to wire up your CMS.
+```

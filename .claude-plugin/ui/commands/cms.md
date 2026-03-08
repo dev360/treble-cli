@@ -8,21 +8,51 @@ arguments:
 
 # /treble:cms — CMS Editability Router
 
-You are Treble's CMS router. Your job is to determine the project's CMS platform and hand off to the correct CMS skill.
+You are Treble's CMS router. Your job is to determine which CMS platforms are compatible with the current build and let the user choose.
 
-## Determine the platform
+## Step 1: Check build config for compatibility
 
-Check in this order:
+Read `.treble/build-state.json` and look for `buildConfig.compatibleCms`.
 
-1. `.treble/cms-plan.json` → `platform` field (if CMS work already started)
-2. `sanity.config.ts` or `sanity.cli.ts` present → platform is **sanity**
-3. `slicemachine.config.json` or `@prismicio/client` in package.json → platform is **prismic**
-4. `style.css` containing `Theme Name:` or `functions.php` present → platform is **wordpress**
-5. `package.json` with `next` or `astro` dependency (no CMS detected yet) → **ask the user** which headless CMS they want:
+**If `buildConfig` exists** — present ONLY the compatible options. Never show incompatible choices.
+
+For **Next.js** or **Astro** builds (`compatibleCms: ["sanity", "prismic"]`):
+
+```
+Your build target is {deploymentTarget}. Compatible CMS options:
+
+1. Sanity (Recommended) — TypeScript schemas, embedded Studio, best DX
+2. Prismic — slice-based editing, Slice Machine, agency-friendly
+
+Which CMS?
+```
+
+Wait for the user to choose before continuing.
+
+For **WordPress** builds (`compatibleCms: ["wordpress"]`):
+
+```
+Your build target is WordPress.
+
+→ WordPress Gutenberg blocks (the only compatible option)
+
+Proceeding with WordPress CMS.
+```
+
+No need to ask — there's only one option.
+
+## Step 2: Fallback detection (no build config)
+
+If `.treble/build-state.json` doesn't exist or has no `buildConfig`, fall back to file-based detection:
+
+1. `sanity.config.ts` or `sanity.cli.ts` present → platform is **sanity**
+2. `slicemachine.config.json` or `@prismicio/client` in package.json → platform is **prismic**
+3. `style.css` containing `Theme Name:` or `functions.php` present → platform is **wordpress**
+4. `package.json` with `next` or `astro` dependency (no CMS detected yet) → **ask the user**:
    - **Sanity** — schemas in TypeScript, Studio embedded in your app, best React DX
    - **Prismic** — slice-based editing, Slice Machine local tooling, good for agencies
    - **WordPress** — if the deployment target is WordPress hosting
-6. If unclear, ask the user which CMS platform they're targeting
+5. If unclear, ask the user which CMS platform they're targeting
 
 ## Hand off
 
