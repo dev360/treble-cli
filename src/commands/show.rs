@@ -7,11 +7,16 @@
 
 use crate::config::{find_project_root, GlobalConfig, ProjectConfig};
 use crate::figma::client::FigmaClient;
-use crate::figma::types::{FigmaManifest, FlatNode, slugify};
+use crate::figma::types::{slugify, FigmaManifest, FlatNode};
 use anyhow::{Context, Result};
 use colored::Colorize;
 
-pub async fn run(node_query: String, frame_name: Option<String>, scale: f64, json_output: bool) -> Result<()> {
+pub async fn run(
+    node_query: String,
+    frame_name: Option<String>,
+    scale: f64,
+    json_output: bool,
+) -> Result<()> {
     let project_root = find_project_root()?;
     let project_config = ProjectConfig::load(&project_root)?;
     let global_config = GlobalConfig::load()?;
@@ -32,11 +37,7 @@ pub async fn run(node_query: String, frame_name: Option<String>, scale: f64, jso
         resolve_node(&figma_dir, &manifest, &node_query, frame_name.as_deref())?;
 
     if !json_output {
-        println!(
-            "Rendering {} ({})...",
-            node_name.bold(),
-            node_id.dimmed()
-        );
+        println!("Rendering {} ({})...", node_name.bold(), node_id.dimmed());
     }
 
     // Call Figma images API

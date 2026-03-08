@@ -29,9 +29,15 @@ impl FigmaClient {
         // Read the body for better diagnostics
         let body = resp.text().await.unwrap_or_default();
         match status.as_u16() {
-            403 => anyhow::bail!("{context}: token is invalid, expired, or lacks required scope\n  Response: {body}"),
-            404 => anyhow::bail!("{context}: not found — check the URL or token permissions\n  Response: {body}"),
-            429 => anyhow::bail!("Figma API rate limited — wait a minute and retry\n  Response: {body}"),
+            403 => anyhow::bail!(
+                "{context}: token is invalid, expired, or lacks required scope\n  Response: {body}"
+            ),
+            404 => anyhow::bail!(
+                "{context}: not found — check the URL or token permissions\n  Response: {body}"
+            ),
+            429 => anyhow::bail!(
+                "Figma API rate limited — wait a minute and retry\n  Response: {body}"
+            ),
             _ => anyhow::bail!("{context}: Figma API error ({status})\n  Response: {body}"),
         }
     }
@@ -92,9 +98,7 @@ impl FigmaClient {
     pub async fn get_nodes(&self, file_key: &str, node_ids: &[&str]) -> Result<NodesResponse> {
         let ids = node_ids.join(",");
         let url = format!("{FIGMA_API_BASE}/files/{file_key}/nodes?ids={ids}");
-        let resp = self
-            .figma_get_with_retry(&url, "nodes")
-            .await?;
+        let resp = self.figma_get_with_retry(&url, "nodes").await?;
         resp.json::<NodesResponse>()
             .await
             .context("Failed to parse nodes response")
@@ -109,9 +113,7 @@ impl FigmaClient {
     ) -> Result<HashMap<String, Option<String>>> {
         let ids = node_ids.join(",");
         let url = format!("{FIGMA_API_BASE}/images/{file_key}?ids={ids}&format=png&scale={scale}");
-        let resp = self
-            .figma_get_with_retry(&url, "images")
-            .await?;
+        let resp = self.figma_get_with_retry(&url, "images").await?;
         let image_resp: ImageResponse = resp
             .json()
             .await
@@ -288,15 +290,14 @@ pub fn scan_image_refs(nodes: &[FlatNode]) -> Vec<(String, Vec<ImageNodeUsage>)>
                     let fill_type = fill.get("type").and_then(|v| v.as_str()).unwrap_or("");
                     if fill_type == "IMAGE" {
                         if let Some(image_ref) = fill.get("imageRef").and_then(|v| v.as_str()) {
-                            ref_map
-                                .entry(image_ref.to_string())
-                                .or_default()
-                                .push(ImageNodeUsage {
+                            ref_map.entry(image_ref.to_string()).or_default().push(
+                                ImageNodeUsage {
                                     node_id: node.id.clone(),
                                     node_name: node.name.clone(),
                                     width: node.width,
                                     height: node.height,
-                                });
+                                },
+                            );
                         }
                     }
                 }

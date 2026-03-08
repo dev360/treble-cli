@@ -124,9 +124,13 @@ async fn main() -> Result<()> {
             server,
         } => commands::login::run(pat, figma_token, server).await,
         Commands::Init { figma, flavor } => commands::init::run(figma, flavor).await,
-        Commands::Sync { frame, page, node, force, interactive } => {
-            commands::sync::run(frame, page, node, force, interactive).await
-        }
+        Commands::Sync {
+            frame,
+            page,
+            node,
+            force,
+            interactive,
+        } => commands::sync::run(frame, page, node, force, interactive).await,
         Commands::Extract { frame } => commands::extract::run(frame).await,
         Commands::Tree {
             frame,

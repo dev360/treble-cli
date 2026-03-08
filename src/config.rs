@@ -37,8 +37,7 @@ impl GlobalConfig {
         }
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("Failed to read {}", path.display()))?;
-        toml::from_str(&content)
-            .with_context(|| format!("Failed to parse {}", path.display()))
+        toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))
     }
 
     pub fn save(&self) -> Result<()> {
@@ -64,7 +63,6 @@ impl GlobalConfig {
             .as_deref()
             .context("Figma token not configured. Run `treble login` first.")
     }
-
 }
 
 // ── Project config (.treble/config.toml) ────────────────────────────────

@@ -34,10 +34,7 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
     let token = match config.figma_token.as_deref() {
         Some(t) if !t.is_empty() => t,
         _ => {
-            println!(
-                "\n  {} No Figma token found.\n",
-                "Error:".red().bold()
-            );
+            println!("\n  {} No Figma token found.\n", "Error:".red().bold());
             println!("  Run one of these first:\n");
             println!("    {}  Sign in via treble.build", "treble login".bold());
             println!(
@@ -50,8 +47,7 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
             );
             println!(
                 "  Create a PAT at: {}\n",
-                "https://www.figma.com/developers/api#access-tokens"
-                    .underline()
+                "https://www.figma.com/developers/api#access-tokens".underline()
             );
             std::process::exit(1);
         }
@@ -66,12 +62,7 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
             // Show pages
             for page in &file.document.children {
                 let frame_count = page.children.len();
-                println!(
-                    "  {} {} ({} frames)",
-                    "→".dimmed(),
-                    page.name,
-                    frame_count
-                );
+                println!("  {} {} ({} frames)", "→".dimmed(), page.name, frame_count);
             }
         }
         Err(e) => {
@@ -81,8 +72,7 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
     }
 
     // ── Create .treble/ structure ───────────────────────────────────────
-    std::fs::create_dir_all(treble_dir.join("figma"))
-        .context("Failed to create .treble/figma/")?;
+    std::fs::create_dir_all(treble_dir.join("figma")).context("Failed to create .treble/figma/")?;
 
     // Write project config
     let project_config = ProjectConfig {
@@ -121,7 +111,11 @@ fn extract_file_key(input: &str) -> String {
         for (i, part) in parts.iter().enumerate() {
             if (*part == "design" || *part == "file") && i + 1 < parts.len() {
                 // The next segment is the key (may have query params)
-                return parts[i + 1].split('?').next().unwrap_or(parts[i + 1]).to_string();
+                return parts[i + 1]
+                    .split('?')
+                    .next()
+                    .unwrap_or(parts[i + 1])
+                    .to_string();
             }
         }
     }

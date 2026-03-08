@@ -74,11 +74,7 @@ pub async fn run(frame_filter: Option<String>) -> Result<()> {
     for frame in &frames {
         let nodes_path = figma_dir.join(&frame.slug).join("nodes.json");
         if !nodes_path.exists() {
-            eprintln!(
-                "  {} Skipping {} — no nodes.json",
-                "!".yellow(),
-                frame.slug
-            );
+            eprintln!("  {} Skipping {} — no nodes.json", "!".yellow(), frame.slug);
             continue;
         }
 
@@ -119,12 +115,11 @@ pub async fn run(frame_filter: Option<String>) -> Result<()> {
     println!("{} Resolving image URLs from Figma API...", "→".dimmed());
     let ref_urls: HashMap<String, String> = client.get_file_images(file_key).await?;
 
-    let resolved: usize = all_refs.iter().filter(|r| ref_urls.contains_key(*r)).count();
-    println!(
-        "  Resolved {}/{} refs",
-        resolved,
-        all_refs.len()
-    );
+    let resolved: usize = all_refs
+        .iter()
+        .filter(|r| ref_urls.contains_key(*r))
+        .count();
+    println!("  Resolved {}/{} refs", resolved, all_refs.len());
 
     if resolved == 0 {
         println!(
@@ -165,21 +160,12 @@ pub async fn run(frame_filter: Option<String>) -> Result<()> {
                         total_downloaded += 1;
                     }
                     Err(e) => {
-                        eprintln!(
-                            "  {} Failed to download {}: {}",
-                            "!".yellow(),
-                            short_ref,
-                            e
-                        );
+                        eprintln!("  {} Failed to download {}: {}", "!".yellow(), short_ref, e);
                         continue;
                     }
                 }
             } else {
-                eprintln!(
-                    "  {} No URL for imageRef {}",
-                    "!".yellow(),
-                    short_ref
-                );
+                eprintln!("  {} No URL for imageRef {}", "!".yellow(), short_ref);
                 continue;
             }
 

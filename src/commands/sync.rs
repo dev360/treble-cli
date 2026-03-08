@@ -140,20 +140,15 @@ pub async fn run(
             for (i, frame) in all_frames.iter().enumerate() {
                 for page in &file.document.children {
                     for child in &page.children {
-                        let child_id = child
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let child_id = child.get("id").and_then(|v| v.as_str()).unwrap_or("");
                         if child_id != frame.id {
                             continue;
                         }
                         // Check depth-1 children of this frame
                         if let Some(children) = child.get("children").and_then(|v| v.as_array()) {
                             for grandchild in children {
-                                let gc_id = grandchild
-                                    .get("id")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("");
+                                let gc_id =
+                                    grandchild.get("id").and_then(|v| v.as_str()).unwrap_or("");
                                 if gc_id == *target_id {
                                     println!(
                                         "  {} Found inside \"{}\" ({})",
@@ -225,7 +220,8 @@ pub async fn run(
             .collect()
     };
 
-    let is_filtered = frame_filter.is_some() || page_filter.is_some() || node_id.is_some() || interactive;
+    let is_filtered =
+        frame_filter.is_some() || page_filter.is_some() || node_id.is_some() || interactive;
     println!("  {} frames to sync\n", frames.len());
 
     // ── Step 3: Load existing manifest for diff + incremental sync ─────
@@ -598,10 +594,7 @@ fn selected_count(page: &PageNode) -> (usize, usize) {
     (selected, total)
 }
 
-fn interactive_select(
-    canvas_pages: &[CanvasNode],
-    all_frames: &[FrameInfo],
-) -> Result<Vec<usize>> {
+fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> Result<Vec<usize>> {
     // Build tree model
     let mut pages: Vec<PageNode> = canvas_pages
         .iter()
@@ -637,7 +630,10 @@ fn interactive_select(
     let result = (|| -> Result<Vec<usize>> {
         loop {
             let visible = build_visible(&pages);
-            let total_selected: usize = pages.iter().map(|p| p.frames.iter().filter(|f| f.selected).count()).sum();
+            let total_selected: usize = pages
+                .iter()
+                .map(|p| p.frames.iter().filter(|f| f.selected).count())
+                .sum();
             let total_frames: usize = pages.iter().map(|p| p.frames.len()).sum();
 
             // Clamp cursor
@@ -665,15 +661,22 @@ fn interactive_select(
             let mut lines: Vec<String> = Vec::new();
 
             lines.push(String::new());
-            lines.push(format!("  {}  {}",
+            lines.push(format!(
+                "  {}  {}",
                 "Select frames to sync".bold(),
-                format!("{total_selected}/{total_frames} selected").dimmed()));
+                format!("{total_selected}/{total_frames} selected").dimmed()
+            ));
             lines.push(String::new());
 
             // Figure out which page is last (for └─ vs ├─)
             let last_page_idx = pages.len().saturating_sub(1);
 
-            for (i, row) in visible.iter().enumerate().skip(scroll_offset).take(max_rows) {
+            for (i, row) in visible
+                .iter()
+                .enumerate()
+                .skip(scroll_offset)
+                .take(max_rows)
+            {
                 let is_cursor = i == cursor_pos;
 
                 match row {
@@ -696,11 +699,21 @@ fn interactive_select(
                         let count_str = format!("({total})").dimmed().to_string();
 
                         if is_cursor {
-                            lines.push(format!("  {} {} {} {}",
-                                branch.dimmed(), marker, name.cyan().bold(), count_str));
+                            lines.push(format!(
+                                "  {} {} {} {}",
+                                branch.dimmed(),
+                                marker,
+                                name.cyan().bold(),
+                                count_str
+                            ));
                         } else {
-                            lines.push(format!("  {} {} {} {}",
-                                branch.dimmed(), marker.dimmed(), name, count_str));
+                            lines.push(format!(
+                                "  {} {} {} {}",
+                                branch.dimmed(),
+                                marker.dimmed(),
+                                name,
+                                count_str
+                            ));
                         }
                     }
                     VisibleRow::Frame(pi, fi) => {
@@ -721,14 +734,32 @@ fn interactive_select(
                         };
 
                         if is_cursor {
-                            lines.push(format!("  {} {} {} {}  {}",
-                                trunk.dimmed(), branch.dimmed(), check, name.cyan().bold(), id.dimmed().italic()));
+                            lines.push(format!(
+                                "  {} {} {} {}  {}",
+                                trunk.dimmed(),
+                                branch.dimmed(),
+                                check,
+                                name.cyan().bold(),
+                                id.dimmed().italic()
+                            ));
                         } else if frame.selected {
-                            lines.push(format!("  {} {} {} {}  {}",
-                                trunk.dimmed(), branch.dimmed(), check, name.green(), id.dimmed().italic()));
+                            lines.push(format!(
+                                "  {} {} {} {}  {}",
+                                trunk.dimmed(),
+                                branch.dimmed(),
+                                check,
+                                name.green(),
+                                id.dimmed().italic()
+                            ));
                         } else {
-                            lines.push(format!("  {} {} {} {}  {}",
-                                trunk.dimmed(), branch.dimmed(), check, name.dimmed(), id.dimmed().italic()));
+                            lines.push(format!(
+                                "  {} {} {} {}  {}",
+                                trunk.dimmed(),
+                                branch.dimmed(),
+                                check,
+                                name.dimmed(),
+                                id.dimmed().italic()
+                            ));
                         }
                     }
                 }
@@ -736,13 +767,25 @@ fn interactive_select(
 
             // Footer
             lines.push(String::new());
-            lines.push(format!("  {} navigate   {} select   {} sync   {} quit",
-                "↑↓".dimmed(), "space".dimmed(), "enter".dimmed(), "q".dimmed()));
-            lines.push(format!("  {} expand     {} all",
-                "→←".dimmed(), "a".dimmed()));
+            lines.push(format!(
+                "  {} navigate   {} select   {} sync   {} quit",
+                "↑↓".dimmed(),
+                "space".dimmed(),
+                "enter".dimmed(),
+                "q".dimmed()
+            ));
+            lines.push(format!(
+                "  {} expand     {} all",
+                "→←".dimmed(),
+                "a".dimmed()
+            ));
 
             // Write
-            execute!(stdout, cursor::MoveTo(0, 0), terminal::Clear(ClearType::All))?;
+            execute!(
+                stdout,
+                cursor::MoveTo(0, 0),
+                terminal::Clear(ClearType::All)
+            )?;
             for line in &lines {
                 write!(stdout, "{}\r\n", line)?;
             }
@@ -796,18 +839,14 @@ fn interactive_select(
                         match visible.get(cursor_pos) {
                             Some(VisibleRow::Page(pi)) => {
                                 // Toggle all frames in page
-                                let all_selected = pages[*pi]
-                                    .frames
-                                    .iter()
-                                    .all(|f| f.selected);
+                                let all_selected = pages[*pi].frames.iter().all(|f| f.selected);
                                 let new_val = !all_selected;
                                 for frame in &mut pages[*pi].frames {
                                     frame.selected = new_val;
                                 }
                             }
                             Some(VisibleRow::Frame(pi, fi)) => {
-                                pages[*pi].frames[*fi].selected =
-                                    !pages[*pi].frames[*fi].selected;
+                                pages[*pi].frames[*fi].selected = !pages[*pi].frames[*fi].selected;
                             }
                             None => {}
                         }
@@ -817,9 +856,8 @@ fn interactive_select(
                     }
                     KeyCode::Char('a') => {
                         // Toggle all
-                        let any_unselected = pages
-                            .iter()
-                            .any(|p| p.frames.iter().any(|f| !f.selected));
+                        let any_unselected =
+                            pages.iter().any(|p| p.frames.iter().any(|f| !f.selected));
                         for page in &mut pages {
                             for frame in &mut page.frames {
                                 frame.selected = any_unselected;
@@ -845,7 +883,11 @@ fn interactive_select(
     // Restore terminal — always, even on error
     let _ = execute!(stdout, cursor::Show);
     let _ = terminal::disable_raw_mode();
-    let _ = execute!(stdout, cursor::MoveTo(0, 0), terminal::Clear(ClearType::All));
+    let _ = execute!(
+        stdout,
+        cursor::MoveTo(0, 0),
+        terminal::Clear(ClearType::All)
+    );
 
     result
 }

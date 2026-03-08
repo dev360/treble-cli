@@ -85,10 +85,7 @@ async fn run_token_login(token: &str) -> Result<()> {
     let client = FigmaClient::new(token);
     match client.me().await {
         Ok(me) => {
-            println!(
-                "{}",
-                format!("{} ({})", me.handle, me.email).green()
-            );
+            println!("{}", format!("{} ({})", me.handle, me.email).green());
             config.figma_token = Some(token.to_string());
             config.user_email = Some(me.email);
             config.user_name = Some(me.handle);
@@ -133,10 +130,7 @@ async fn run_device_login(server: &str) -> Result<()> {
     {
         Ok(r) => r,
         Err(_) => {
-            println!(
-                "  {} Could not reach {server}",
-                "Note:".yellow()
-            );
+            println!("  {} Could not reach {server}", "Note:".yellow());
             println!("  Falling back to manual Figma PAT entry.\n");
             return run_pat_login().await;
         }
@@ -164,10 +158,7 @@ async fn run_device_login(server: &str) -> Result<()> {
         device_code_resp.verification_uri, device_code_resp.user_code
     );
 
-    println!(
-        "  Your code: {}",
-        device_code_resp.user_code.bold().cyan()
-    );
+    println!("  Your code: {}", device_code_resp.user_code.bold().cyan());
     println!();
     println!("  Opening browser to {}", verification_url.underline());
     println!(
@@ -177,10 +168,7 @@ async fn run_device_login(server: &str) -> Result<()> {
     println!();
 
     if let Err(e) = open::that(&verification_url) {
-        eprintln!(
-            "  {} Could not open browser: {e}",
-            "Warning:".yellow()
-        );
+        eprintln!("  {} Could not open browser: {e}", "Warning:".yellow());
         println!("  Open this URL manually: {verification_url}");
         println!();
     }
@@ -298,10 +286,7 @@ async fn run_device_login(server: &str) -> Result<()> {
         "Done!".green().bold(),
         identity.white().bold()
     );
-    println!(
-        "  Credentials saved to {}",
-        GlobalConfig::path()?.display()
-    );
+    println!("  Credentials saved to {}", GlobalConfig::path()?.display());
 
     Ok(())
 }

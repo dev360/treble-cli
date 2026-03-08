@@ -46,18 +46,19 @@ pub fn run(
 
     // Load nodes
     let nodes_path = figma_dir.join(slug).join("nodes.json");
-    let nodes: Vec<FlatNode> = serde_json::from_str(
-        &std::fs::read_to_string(&nodes_path)
-            .context(format!(
-                "No nodes.json for frame \"{}\". Run `treble sync`.",
-                entry.name
-            ))?,
-    )?;
+    let nodes: Vec<FlatNode> =
+        serde_json::from_str(&std::fs::read_to_string(&nodes_path).context(format!(
+            "No nodes.json for frame \"{}\". Run `treble sync`.",
+            entry.name
+        ))?)?;
 
     // If --root is specified, find the root node and filter to its subtree
     let (display_nodes, root_depth_offset) = if let Some(ref root_query) = root_filter {
         let root_node = find_node_by_query(&nodes, root_query).with_context(|| {
-            format!("No node matching \"{}\" in frame \"{}\"", root_query, entry.name)
+            format!(
+                "No node matching \"{}\" in frame \"{}\"",
+                root_query, entry.name
+            )
         })?;
         let subtree = extract_subtree(&nodes, &root_node.id);
         let offset = root_node.depth;
@@ -183,7 +184,12 @@ fn extract_subtree(nodes: &[FlatNode], root_id: &str) -> Vec<FlatNode> {
     // Walk nodes in order; include any node whose parent is already included
     let mut result = Vec::new();
     for node in nodes {
-        if node.id == root_id || node.parent_id.as_deref().is_some_and(|pid| included_ids.contains(pid)) {
+        if node.id == root_id
+            || node
+                .parent_id
+                .as_deref()
+                .is_some_and(|pid| included_ids.contains(pid))
+        {
             included_ids.insert(&node.id);
             result.push(node.clone());
         }
@@ -260,10 +266,14 @@ fn print_json(
             if let Some(ref family) = n.font_family {
                 let mut font = json!({ "family": family });
                 if let Some(size) = n.font_size {
-                    font.as_object_mut().unwrap().insert("size".into(), json!(size));
+                    font.as_object_mut()
+                        .unwrap()
+                        .insert("size".into(), json!(size));
                 }
                 if let Some(weight) = n.font_weight {
-                    font.as_object_mut().unwrap().insert("weight".into(), json!(weight));
+                    font.as_object_mut()
+                        .unwrap()
+                        .insert("weight".into(), json!(weight));
                 }
                 m.insert("font".into(), font);
             }
@@ -309,8 +319,14 @@ fn print_verbose_props(node: &FlatNode, indent: &str) {
     let sub_indent = format!("{indent}  ");
 
     if let Some(ref family) = node.font_family {
-        let size = node.font_size.map(|s| format!(" {s}px")).unwrap_or_default();
-        let weight = node.font_weight.map(|w| format!(" w{w}")).unwrap_or_default();
+        let size = node
+            .font_size
+            .map(|s| format!(" {s}px"))
+            .unwrap_or_default();
+        let weight = node
+            .font_weight
+            .map(|w| format!(" w{w}"))
+            .unwrap_or_default();
         println!(
             "{sub_indent}{}",
             format!("font: {family}{size}{weight}").dimmed()
@@ -376,9 +392,6 @@ fn print_type_summary(nodes: &[FlatNode]) {
     let mut sorted: Vec<_> = counts.into_iter().collect();
     sorted.sort_by(|a, b| b.1.cmp(&a.1));
 
-    let summary: Vec<String> = sorted
-        .iter()
-        .map(|(t, c)| format!("{t}: {c}"))
-        .collect();
+    let summary: Vec<String> = sorted.iter().map(|(t, c)| format!("{t}: {c}")).collect();
     println!("{}", format!("Summary: {}", summary.join(", ")).dimmed());
 }
