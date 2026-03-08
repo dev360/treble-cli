@@ -70,8 +70,33 @@ mise run test         # cargo test
 mise run lint         # clippy + fmt check
 ```
 
+**IMPORTANT:** Before pushing, ALWAYS run these checks:
+```bash
+cargo fmt          # Fix formatting (CI enforces cargo fmt --check)
+cargo clippy       # Catch lint warnings
+cargo test         # Run tests
+cargo build        # Verify it compiles
+```
+CI will reject the push if `cargo fmt --check` fails. Fix formatting BEFORE committing.
+
 **IMPORTANT:** After ANY code change, always build and install immediately:
 ```bash
 mise run install
 ```
 This ensures the user's `treble` binary in PATH is always up to date.
+
+## Publishing
+
+- Pushes to `main` trigger semantic-release via GitHub Actions
+- Commit prefixes: `fix:` → patch, `feat:` → minor, `BREAKING CHANGE` → major
+- `chore:`, `docs:`, `style:`, `test:`, `ci:` do NOT trigger a release
+- CI cross-compiles for darwin-arm64/x64 + linux-x64/arm64, publishes to npm as `@treble-app/cli`
+
+## Auth
+
+The CLI supports two token types for Figma API:
+- **OAuth** (`treble login` device flow): uses `Authorization: Bearer` header
+- **PAT** (`treble login --pat`): uses `X-Figma-Token` header
+
+`GlobalConfig::figma_client()` auto-detects which to use based on `session_token` presence.
+`FigmaClient::new()` = PAT, `FigmaClient::new_oauth()` = OAuth Bearer.
