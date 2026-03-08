@@ -31,7 +31,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm install --omit=optional --ignore-scripts
+        run: npm ci
 
       - name: Semantic Release (dry run)
         id: semantic
@@ -116,7 +116,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
-        run: npm install --omit=optional --ignore-scripts
+        run: npm ci
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4

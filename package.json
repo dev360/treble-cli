@@ -24,12 +24,10 @@
   },
   "files": [
     "bin",
-    "scripts",
     "npm"
   ],
   "scripts": {
-    "test": "cargo test",
-    "postinstall": "node scripts/postinstall.js"
+    "test": "cargo test"
   },
   "optionalDependencies": {
     "@treble-app/cli-darwin-arm64": "1.0.0",
