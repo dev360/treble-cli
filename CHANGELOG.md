@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/treble-app/cli/compare/v1.1.3...v1.1.4) (2026-03-08)
+
+
+### Bug Fixes
+
+* cargo fmt formatting in init.rs ([1061114](https://github.com/treble-app/cli/commit/1061114aad4ba4b547e7d88e0d0c414d87292bb0))
+
 ## [1.1.3](https://github.com/treble-app/cli/compare/v1.1.2...v1.1.3) (2026-03-08)
 
 
