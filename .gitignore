@@ -9,7 +9,6 @@ npm/*/bin/
 
 # dependencies
 node_modules/
-package-lock.json
 
 # environment / secrets
 .env
