@@ -6,7 +6,6 @@
 //! This is how Claude (or a human) can "look at" any layer in the design.
 
 use crate::config::{find_project_root, GlobalConfig, ProjectConfig};
-use crate::figma::client::FigmaClient;
 use crate::figma::types::{slugify, FigmaManifest, FlatNode};
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -20,8 +19,7 @@ pub async fn run(
     let project_root = find_project_root()?;
     let project_config = ProjectConfig::load(&project_root)?;
     let global_config = GlobalConfig::load()?;
-    let token = global_config.require_figma_token()?;
-    let client = FigmaClient::new(token);
+    let client = global_config.figma_client()?;
 
     let file_key = &project_config.figma_file_key;
     let figma_dir = project_root.join(".treble").join("figma");

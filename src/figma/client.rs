@@ -8,6 +8,7 @@ const FIGMA_API_BASE: &str = "https://api.figma.com/v1";
 
 pub struct FigmaClient {
     token: String,
+    is_oauth: bool,
     http: reqwest::Client,
 }
 
@@ -15,6 +16,15 @@ impl FigmaClient {
     pub fn new(token: &str) -> Self {
         Self {
             token: token.to_string(),
+            is_oauth: false,
+            http: reqwest::Client::new(),
+        }
+    }
+
+    pub fn new_oauth(token: &str) -> Self {
+        Self {
+            token: token.to_string(),
+            is_oauth: true,
             http: reqwest::Client::new(),
         }
     }
@@ -55,13 +65,13 @@ impl FigmaClient {
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(*delay)).await;
             }
-            let resp = self
-                .http
-                .get(url)
-                .header("X-Figma-Token", &self.token)
-                .send()
-                .await
-                .context("Failed to reach Figma API")?;
+            let mut req = self.http.get(url);
+            if self.is_oauth {
+                req = req.header("Authorization", format!("Bearer {}", self.token));
+            } else {
+                req = req.header("X-Figma-Token", &self.token);
+            }
+            let resp = req.send().await.context("Failed to reach Figma API")?;
 
             if resp.status().as_u16() == 429 && i < delays.len() - 1 {
                 // Consume body so connection is released, then retry

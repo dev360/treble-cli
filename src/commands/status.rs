@@ -3,7 +3,6 @@
 //! Machine-readable with --json for agent consumption.
 
 use crate::config::{find_project_root, GlobalConfig, ProjectConfig};
-use crate::figma::client::FigmaClient;
 use anyhow::Result;
 use colored::Colorize;
 use serde_json::json;
@@ -25,8 +24,8 @@ pub async fn run(json_output: bool) -> Result<()> {
     let mut api_email = None;
     let mut api_handle = None;
 
-    if let Some(ref token) = config.figma_token {
-        let client = FigmaClient::new(token);
+    if config.figma_token.is_some() {
+        let client = config.figma_client()?;
         match client.me().await {
             Ok(me) => {
                 token_valid = true;

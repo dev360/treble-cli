@@ -52,7 +52,11 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
             std::process::exit(1);
         }
     };
-    let client = FigmaClient::new(token);
+    let client = if config.is_oauth() {
+            FigmaClient::new_oauth(token)
+        } else {
+            FigmaClient::new(token)
+        };
 
     print!("Validating Figma file... ");
     match client.get_file(&file_key).await {

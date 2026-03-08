@@ -1,6 +1,7 @@
 //! Global config at ~/.treble/config.toml
 //! Project config at .treble/config.toml
 
+use crate::figma::client::FigmaClient;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -62,6 +63,22 @@ impl GlobalConfig {
         self.figma_token
             .as_deref()
             .context("Figma token not configured. Run `treble login` first.")
+    }
+
+    /// Returns true if the stored token came from OAuth (device flow login)
+    /// vs a Personal Access Token (--pat or --figma-token).
+    pub fn is_oauth(&self) -> bool {
+        self.session_token.is_some()
+    }
+
+    /// Create a FigmaClient with the right auth header (OAuth Bearer vs PAT).
+    pub fn figma_client(&self) -> Result<FigmaClient> {
+        let token = self.require_figma_token()?;
+        if self.is_oauth() {
+            Ok(FigmaClient::new_oauth(token))
+        } else {
+            Ok(FigmaClient::new(token))
+        }
     }
 }
 

@@ -13,7 +13,7 @@
 //! Everything is visible via `git diff .treble/`.
 
 use crate::config::{find_project_root, GlobalConfig, ProjectConfig};
-use crate::figma::client::{flatten_node_tree, FigmaClient};
+use crate::figma::client::flatten_node_tree;
 use crate::figma::types::{
     assign_unique_slugs, slugify, FigmaManifest, FlatNode, FrameManifestEntry,
 };
@@ -65,8 +65,7 @@ pub async fn run(
     let project_root = find_project_root()?;
     let project_config = ProjectConfig::load(&project_root)?;
     let global_config = GlobalConfig::load()?;
-    let token = global_config.require_figma_token()?;
-    let client = FigmaClient::new(token);
+    let client = global_config.figma_client()?;
 
     let file_key = &project_config.figma_file_key;
     let figma_dir = project_root.join(".treble").join("figma");
