@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "test -f .treble/config.toml && echo 'treble project detected' || true"
+            "command": "test -f .treble/config.toml && echo 'treble project detected' || true; command -v treble >/dev/null 2>&1 || echo 'WARNING: treble CLI not found. Install it: npm install -g @treble-app/cli'"
           }
         ]
       }
