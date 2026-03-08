@@ -1,6 +1,6 @@
 {
   "name": "@treble-app/cli-darwin-arm64",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "treble CLI binary for macOS ARM64",
   "license": "MIT",
   "repository": {

@@ -1,6 +1,6 @@
 {
   "name": "@treble-app/cli",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Figma-to-code CLI — plan, implement, compare",
   "author": "treble.build",
   "license": "MIT",
@@ -30,10 +30,10 @@
     "test": "cargo test"
   },
   "optionalDependencies": {
-    "@treble-app/cli-darwin-arm64": "1.1.1",
-    "@treble-app/cli-darwin-x64": "1.1.1",
-    "@treble-app/cli-linux-x64": "1.1.1",
-    "@treble-app/cli-linux-arm64": "1.1.1"
+    "@treble-app/cli-darwin-arm64": "1.1.2",
+    "@treble-app/cli-darwin-x64": "1.1.2",
+    "@treble-app/cli-linux-x64": "1.1.2",
+    "@treble-app/cli-linux-arm64": "1.1.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",

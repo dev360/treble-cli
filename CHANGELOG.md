@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/treble-app/cli/compare/v1.1.1...v1.1.2) (2026-03-08)
+
+
+### Bug Fixes
+
+* set correct version in binary before build ([7755485](https://github.com/treble-app/cli/commit/7755485e5621e7e171fcc3f85546f1a41e02b43d))
+
 ## [1.1.1](https://github.com/treble-app/cli/compare/v1.1.0...v1.1.1) (2026-03-08)
 
 
