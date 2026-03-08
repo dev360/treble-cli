@@ -593,49 +593,66 @@ docker-compose exec wordpress wp menu item add-custom "Primary" "Services" "#" -
 docker-compose exec wordpress wp menu item add-custom "Primary" "About Us" "#" --allow-root
 ```
 
-## Step 6: Visual Verification (Two-Tier)
+## Step 6: Visual Verification (Two-Tier, MANDATORY)
 
-This is the final quality gate before handoff. You run TWO comparisons — one to catch template rewrite regressions, one to catch accumulated drift from the original Figma design.
+You MUST do a real visual comparison after all templates are rewritten and content is populated. This is not optional. "It renders without errors" is NOT a visual review.
+
+You run TWO comparisons — one to catch template rewrite regressions, one to catch accumulated drift from the original Figma design.
 
 ### 6a. Capture post-CMS screenshot
 
-Spawn a `chrome-devtools-tester` subagent:
+Spawn a `chrome-devtools-tester` subagent to screenshot the WordPress site:
 
 ```
-Navigate to the WordPress site at localhost:{port}.
-Wait for full page load (network idle).
+Navigate to localhost:{port} (or the specific route for this page).
+Wait for the page to fully load (wait for network idle).
 Take a full-page screenshot at 1440px width.
-Save to .treble/screenshots/{PageName}-cms.png
-Return the file path.
+Save it to .treble/screenshots/{PageName}-cms.png
+Also take section-level screenshots if the page is long — scroll to each section and capture it.
+Return the file paths of all screenshots taken.
 ```
 
 ### 6b. Tier 1 — Regression check (post-CMS vs pre-CMS)
 
-Spawn a `general-purpose` subagent to compare the CMS screenshot against the dev agent's last passing screenshot:
+Spawn a `general-purpose` subagent that reads BOTH screenshots and compares them:
 
 ```
-Compare these two images:
-PRE-CMS: .treble/screenshots/{PageName}-impl.png (or the dev agent's last screenshot)
-POST-CMS: .treble/screenshots/{PageName}-cms.png
+You are doing a pixel-level visual comparison between the pre-CMS and post-CMS builds. These should be nearly identical — the CMS step only swaps content sources, not layout or styling.
 
-These should be nearly identical. Flag ANY differences — even subtle ones.
-Focus on:
-1. Navigation markup changes (wp_nav_menu outputs <ul><li><a> — different from hardcoded <a> tags)
-2. Image sizing (ACF returns different dimensions than hardcoded src)
-3. Text wrapping (WYSIWYG adds <p> tags, textarea doesn't)
-4. Missing content (empty ACF fields → hidden sections)
-5. Spacing shifts (WordPress markup adds wrapper divs)
+PRE-CMS: Read the file at .treble/screenshots/{PageName}-impl.png
+POST-CMS: Read the file at .treble/screenshots/{PageName}-cms.png
+
+Compare these two images section by section. For EACH visual section (nav, hero, features, footer, etc.), report:
+
+1. LAYOUT — Is the structure correct? Flex direction, element order, alignment?
+2. SPACING — Are margins, padding, gaps visually matching?
+3. COLORS — Do backgrounds, text colors, borders match?
+4. TYPOGRAPHY — Font sizes, weights, line-heights look right?
+5. SHAPES — Border radius, shadows, decorative elements?
+6. IMAGES/ICONS — Are placeholders roughly the right size/position?
+
+Be HARSH. Flag every difference you see, no matter how small. Rate each section: MATCH / CLOSE / WRONG.
 
 Return JSON:
 {
-  "regressions": [
-    {"section": "NavBar", "issue": "nav links now wrapped in <ul><li>, adding bullet points", "fix": "Add Walker class to strip default list styling"}
-  ],
-  "passed": true|false
+  "overall": "MATCH|CLOSE|WRONG",
+  "sections": [
+    {
+      "name": "NavBar",
+      "rating": "WRONG",
+      "discrepancies": ["nav links now wrapped in <ul><li>, showing bullet points", "nav spacing changed — links are closer together"],
+      "suggestions": ["Add custom Walker class to strip default list styling", "Add gap-[27px] to walker output <a> tags"]
+    }
+  ]
 }
 ```
 
-**If regressions found:** Fix the template/Walker/field type, re-screenshot, re-compare. Max 2 attempts before flagging for manual review.
+**Step 6b-fix: Fix regressions**
+
+If the comparison found issues (anything rated WRONG or CLOSE with significant discrepancies):
+1. Fix the template based on the specific suggestions
+2. Re-run step 6a and 6b
+3. Max 3 attempts before marking as `"skipped"`
 
 **Common CMS regressions and fixes:**
 - `wp_nav_menu()` outputs different markup → write a custom Walker class in `functions.php`
@@ -648,25 +665,24 @@ Return JSON:
 
 This is the final pass against the original design. The CMS refactor is the last time anyone touches these templates before client handoff — catch accumulated drift now.
 
-Spawn a `general-purpose` subagent:
+Spawn a `general-purpose` subagent that reads BOTH images and compares them:
 
 ```
-You are doing a pixel-level visual comparison between the original Figma design and the final WordPress implementation.
+You are doing a pixel-level visual comparison between a Figma design and a web implementation.
 
-FIGMA REFERENCE: Read the file at .treble/figma/{slug}/reference.png
+FIGMA REFERENCE: Read the file at {referenceImages[0]}
 IMPLEMENTATION: Read the file at .treble/screenshots/{PageName}-cms.png
 
-Compare section by section. For EACH visual section, report:
+Compare these two images section by section. For EACH visual section (nav, hero, features, footer, etc.), report:
 
-1. LAYOUT — Structure correct? Flex direction, element order, alignment?
-2. SPACING — Margins, padding, gaps visually matching?
-3. COLORS — Backgrounds, text colors, borders match?
+1. LAYOUT — Is the structure correct? Flex direction, element order, alignment?
+2. SPACING — Are margins, padding, gaps visually matching?
+3. COLORS — Do backgrounds, text colors, borders match?
 4. TYPOGRAPHY — Font sizes, weights, line-heights look right?
 5. SHAPES — Border radius, shadows, decorative elements?
-6. IMAGES — Are photos the right size/position? Cropping correct?
-7. CONTENT — Does the dynamic content match what was in the Figma? Any truncation or overflow?
+6. IMAGES/ICONS — Are placeholders roughly the right size/position?
 
-Be HARSH. This is the final quality gate. Rate each section: MATCH / CLOSE / WRONG.
+Be HARSH. Flag every difference you see, no matter how small. Rate each section: MATCH / CLOSE / WRONG.
 
 Return JSON:
 {
@@ -675,39 +691,46 @@ Return JSON:
     {
       "name": "Hero",
       "rating": "CLOSE",
-      "discrepancies": ["heading font appears larger than Figma — check font-size value", "CTA button missing inner shadow"],
-      "suggestions": ["Use treble tree to verify exact font size from Figma node", "Add shadow-[inset_0_-2px_4px_rgba(0,0,0,0.1)] to button"]
+      "discrepancies": ["heading font too small — Figma shows ~56px, impl looks ~36px", "CTA button missing gold background"],
+      "suggestions": ["Change text-3xl to text-5xl", "Add bg-accent to button"]
     }
   ]
 }
 ```
 
+If no `referenceImages` exist for the page, use the full-frame reference: `.treble/figma/{slug}/reference.png`
+
 ### 6d. Fix Figma discrepancies
 
-If the fidelity check found issues rated WRONG or CLOSE with significant discrepancies:
+If the comparison found issues (anything rated WRONG or CLOSE with significant discrepancies):
 
 1. **Use `treble tree` to get exact values** — don't guess. Pull the real font size, color, padding, gap from the Figma node data.
    ```bash
-   treble tree "Homepage" --root "254:1916" --verbose
+   treble tree "{frameName}" --root "{nodeId}" --verbose
    ```
 
 2. **Fix the CSS/template** — adjust Tailwind classes, spacing values, colors. Remember: change ONLY styling, not content source (that's already ACF-powered).
 
-3. **Re-screenshot and re-compare** (repeat 6a + 6c). Max 2 fix attempts before marking the discrepancy as `"accepted"` with a note explaining why (e.g., "font is commercial trial — using fallback, slight metric difference expected").
+3. **Re-run step 6a and 6c**. Max 3 attempts before marking as `"skipped"`.
 
-Write the verification results to `build-state.json`:
+Write the visual review result to `build-state.json`:
 ```json
 {
   "PageName": {
-    "cmsVerification": {
-      "regressionCheck": { "passed": true, "issues": [] },
-      "figmaFidelity": {
-        "overall": "CLOSE",
-        "sections": [...],
-        "acceptedDiscrepancies": ["Commercial font fallback — Georgia vs Canela Text"],
-        "attempts": 1
-      },
-      "verifiedAt": "ISO-8601"
+    "status": "cms-complete",
+    "filePath": "templates/template-home.php",
+    "generatedAt": "ISO-8601",
+    "attempts": 1,
+    "visualReview": {
+      "passed": true,
+      "discrepancies": [],
+      "acceptedDiscrepancies": ["Commercial font fallback — Georgia vs Canela Text"],
+      "reviewedAt": "ISO-8601"
+    },
+    "regressionCheck": {
+      "passed": true,
+      "discrepancies": [],
+      "reviewedAt": "ISO-8601"
     }
   }
 }
