@@ -10,39 +10,10 @@ npm install -g @treble-app/cli
 
 ```mermaid
 flowchart LR
-    A["Figma design"] --> B["treble sync"]
-
-    subgraph LOCAL ["On disk (.treble/)"]
-        B --> C["Screenshots\nLayer trees\nVisual properties"]
-    end
-
-    C --> D["/treble:plan"]
-
-    subgraph PLAN ["AI Analysis"]
-        D --> E["Component inventory\nDesign tokens\nBuild order"]
-    end
-
-    E --> F["/treble:dev"]
-
-    subgraph BUILD ["Build Loop"]
-        F --> G["Classify design"]
-        G --> H["Pick stack"]
-        H --> I["Scaffold project"]
-        I --> J["Generate code"]
-        J --> K{"Visual\nreview"}
-        K -- "mismatch" --> J
-        K -- "match" --> L["Next component"]
-        L --> J
-    end
-
-    L --> M["/treble:cms"]
-    M --> N["Production site"]
-
-    style A fill:#7c3aed,color:#fff
-    style N fill:#16a34a,color:#fff
-    style LOCAL fill:#1e1e2e,color:#cdd6f4
-    style PLAN fill:#1e1e2e,color:#cdd6f4
-    style BUILD fill:#1e1e2e,color:#cdd6f4
+    A["🎨 Figma"] -->|treble sync| B["📁 Local files"]
+    B -->|/treble:plan| C["📋 Analysis"]
+    C -->|/treble:dev| D["⚡ Code"]
+    D -->|/treble:cms| E["🚀 Production"]
 ```
 
 1. **`treble sync`** pulls your Figma frames to disk — screenshots, layer trees, and visual properties. No API calls after the first sync.
