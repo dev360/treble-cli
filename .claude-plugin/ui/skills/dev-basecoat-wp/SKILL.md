@@ -1,9 +1,7 @@
 ---
-description: Build loop for WordPress + Sage + Basecoat targets — invoked by /treble:dev
-arguments:
-  - name: component
-    description: Start from a specific component (optional, picks next planned)
-    required: false
+name: dev-basecoat-wp
+description: Build loop for WordPress + Sage + Basecoat targets. Use this skill when /treble:dev determines the deployment target is WordPress, or when the user asks to build a WordPress theme.
+version: 0.1.0
 ---
 
 # /treble:dev-basecoat-wp — Build Loop (WordPress + Sage + Basecoat)

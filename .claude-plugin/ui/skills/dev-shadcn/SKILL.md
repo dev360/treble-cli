@@ -1,9 +1,7 @@
 ---
-description: Build loop for React + shadcn/ui targets — invoked by /treble:dev
-arguments:
-  - name: component
-    description: Start from a specific component (optional, picks next planned)
-    required: false
+name: dev-shadcn
+description: Build loop for React + shadcn/ui targets. Use this skill when /treble:dev determines the deployment target is Next.js or Astro, or when the user asks to build components with shadcn/ui.
+version: 0.1.0
 ---
 
 # /treble:dev-shadcn — Build Loop (React + shadcn/ui)

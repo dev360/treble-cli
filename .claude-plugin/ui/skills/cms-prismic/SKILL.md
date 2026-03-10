@@ -1,9 +1,7 @@
 ---
-description: Make a React+shadcn build editable via Prismic Slice Machine
-arguments:
-  - name: page
-    description: Specific page/feature to make editable (optional, does all if omitted)
-    required: false
+name: cms-prismic
+description: Make a React + shadcn/ui build editable via Prismic Slice Machine. Use this skill when /treble:cms determines the CMS platform is Prismic.
+version: 0.1.0
 ---
 
 # Prismic CMS Integration (React + shadcn/ui)

@@ -56,10 +56,10 @@ If `.treble/build-state.json` doesn't exist or has no `buildConfig`, fall back t
 
 ## Hand off
 
-Once you know the platform, invoke the matching skill:
+Once you know the platform, hand off to the matching skill using the `Skill` tool:
 
-- **sanity** → invoke `/treble:cms-sanity`
-- **prismic** → invoke `/treble:cms-prismic`
-- **wordpress** → invoke `/treble:cms-wp`
+- **sanity** → `Skill(skill: "treble:cms-sanity")`
+- **prismic** → `Skill(skill: "treble:cms-prismic")`
+- **wordpress** → `Skill(skill: "treble:cms-wp")`
 
 Pass through any arguments the user provided (e.g. page name).

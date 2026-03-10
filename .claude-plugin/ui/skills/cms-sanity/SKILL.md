@@ -1,9 +1,7 @@
 ---
-description: Make a React+shadcn build editable via Sanity Studio
-arguments:
-  - name: page
-    description: Specific page/feature to make editable (optional, does all if omitted)
-    required: false
+name: cms-sanity
+description: Make a React + shadcn/ui build editable via Sanity Studio. Use this skill when /treble:cms determines the CMS platform is Sanity.
+version: 0.1.0
 ---
 
 # Sanity CMS Integration (React + shadcn/ui)

@@ -1,9 +1,7 @@
 ---
-description: Make a dev-wp build editable — WordPress CMS integration
-arguments:
-  - name: page
-    description: Specific page to make editable (optional, does all pages if omitted)
-    required: false
+name: cms-wp
+description: Make a WordPress build editable with ACF fields, custom post types, and nav menus. Use this skill when /treble:cms determines the CMS platform is WordPress.
+version: 0.1.0
 ---
 
 # /treble:cms-wp — WordPress CMS Editability

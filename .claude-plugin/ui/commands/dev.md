@@ -229,9 +229,9 @@ This is your clean baseline. Every component build after this gets its own commi
 
 ## Hand off
 
-Once the project is set up and runnable, hand off to the correct build skill:
+Once the project is set up and runnable, hand off to the correct build skill using the `Skill` tool:
 
-- **shadcn** (Next.js or Astro) → invoke `/treble:dev-shadcn`
-- **wordpress** → invoke `/treble:dev-basecoat-wp`
+- **shadcn** (Next.js or Astro) → `Skill(skill: "treble:dev-shadcn")`
+- **wordpress** → `Skill(skill: "treble:dev-basecoat-wp")`
 
 Pass through any arguments the user provided (e.g. component name).
