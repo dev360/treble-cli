@@ -76,7 +76,7 @@ For each target frame:
 
 **For each visual section**, spawn a subagent using the `Agent` tool (subagent_type: "general-purpose"). The subagent does ALL the visual work — reading screenshots, examining tree details, writing implementation notes.
 
-**CRITICAL: Spawn 3 subagents at a time.** You MUST include multiple Agent tool calls in a single response to run them concurrently. Do NOT wait for one agent to finish before spawning the next. Launch agents in batches of 3, wait for the batch to complete, then launch the next batch of 3. With 8 sections, this means ~3 batches instead of 8 sequential calls.
+**CRITICAL: Spawn 5 subagents at a time.** You MUST include multiple Agent tool calls in a single response to run them concurrently. Do NOT wait for one agent to finish before spawning the next. Launch agents in batches of 5, wait for the batch to complete, then launch the next batch. Never spawn fewer than 5 unless fewer than 5 sections remain.
 
 ### Subagent prompt template
 
