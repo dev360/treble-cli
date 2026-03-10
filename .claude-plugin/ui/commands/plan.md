@@ -128,7 +128,35 @@ You are analyzing ONE section of a Figma design for Treble's design planner.
    - Match to shadcn/ui if applicable (Button, Input, Card, Badge, etc.) with confidence 0.0-1.0
    - For `image-extract` components: reference the `image-map.json` entry — include `imageRef` and `localPath`
 
-6. Write DETAILED implementation notes for this section AND each component in it. Describe:
+6. **Layer composition analysis** — CRITICAL. Before writing implementation notes, examine the Figma
+   tree for this section and identify stacked/overlapping layers that must COLLAPSE into fewer HTML
+   elements. Designers compose visuals by layering — the builder must NOT create a separate `<div>`
+   for every Figma layer.
+
+   **Common patterns to detect:**
+   | Figma structure | What it looks like | CSS translation |
+   |---|---|---|
+   | RECT(image) + RECT(gradient, opacity) stacked | Image with darkening overlay | `relative` container with `bg-[url(...)] bg-cover`, one `absolute inset-0` overlay div |
+   | Single node with multiple fills | Stacked color/gradient fills | Single `background:` shorthand with multiple layers |
+   | RECT(blur) + RECT(white, 10% opacity) | Frosted glass / glassmorphism | `backdrop-blur-md bg-white/10` on one element |
+   | Decorative shapes behind content | Circles, blobs, abstract graphics | CSS pseudo-elements or absolute decorative divs, NOT separate components |
+   | GROUP with shaped bottom child | Clipping mask | `overflow-hidden rounded-*` or `clip-path` |
+   | Layer with blend mode (multiply/screen) | Color tinting or light effects | Approximate with opacity; `mix-blend-mode` is fragile — note if skippable |
+
+   **How to write it:** Start the section's `implementationNotes` with a `LAYERS:` prefix when
+   composition is involved. Example:
+   ```
+   "implementationNotes": "LAYERS: 3 stacked fills (photo RECT + linear-gradient RECT at 0.6 opacity
+   + radial-gradient RECT with screen blend) → collapse to: relative container with bg-[url(...)]
+   bg-cover bg-center, one absolute inset-0 div for gradient overlay (bg-gradient-to-b from-transparent
+   to-black/60), skip radial bloom (screen blend unreliable in CSS). Content children get relative z-10.
+   | Section padding: py-24. Heading: text-5xl font-bold text-white, clamp(2.5rem, 3vw, 3.5rem)..."
+   ```
+
+   If the section has NO layer composition (e.g. a simple white-bg text section), skip the LAYERS
+   prefix and write normal implementation notes.
+
+7. Write DETAILED implementation notes for each **component** in this section. Describe:
    - Layout technique (flex, grid, absolute)
    - Background treatment (solid, gradient, image+overlay)
    - Typography (font, size, weight, color, spacing)
@@ -138,7 +166,7 @@ You are analyzing ONE section of a Figma design for Treble's design planner.
    - Icon handling (which icon library, size)
    - Image handling (aspect ratio, object-fit, overlay)
 
-7. **Logo and SVG detection** — CRITICAL:
+8. **Logo and SVG detection** — CRITICAL:
    - If a node is a VECTOR, or a FRAME/GROUP containing mostly VECTOR children, or its name
      contains "logo", "brand", "wordmark", "icon" — it is likely an SVG asset, NOT reproducible as text.
    - Look at the screenshot. If you see a stylized wordmark, symbol, or graphic that is clearly NOT
@@ -149,7 +177,7 @@ You are analyzing ONE section of a Figma design for Treble's design planner.
      `"implementationNotes": "REQUIRES SVG EXTRACTION from Figma node [ID]. Placeholder only."`
    - If the node has VECTOR children, the Figma API can export it as SVG — note this for the builder.
 
-8. **Font analysis** — for EVERY font family found in this section:
+9. **Font analysis** — for EVERY font family found in this section:
    - Record the exact font name from Figma (e.g. "Some Font TRIAL", "Brand Sans Pro")
    - Note if it appears to be commercial/licensed (keywords: "Pro", "TRIAL", "Display", unfamiliar names)
    - Identify metric-compatible fallback: what system/Google font is closest? (e.g. "Inter" for geometric sans, "Georgia" for serif)
@@ -165,7 +193,7 @@ You are analyzing ONE section of a Figma design for Treble's design planner.
      }
      ```
 
-9. Check `image-map.json` for extracted source images in this frame:
+10. Check `image-map.json` for extracted source images in this frame:
    ```bash
    cat .treble/figma/{frameSlug}/image-map.json 2>/dev/null
    ```
@@ -174,7 +202,7 @@ You are analyzing ONE section of a Figma design for Treble's design planner.
    `extractedImages: [{imageRef, localPath}]`. Read the actual image file if needed to understand
    what the photo depicts.
 
-10. Return your analysis as a JSON object with this structure:
+11. Return your analysis as a JSON object with this structure:
    ```json
    {
      "sectionName": "NavBar",
@@ -204,7 +232,7 @@ You are analyzing ONE section of a Figma design for Treble's design planner.
        "fullWidth": true,
        "containedAtoms": ["Logo", "NavLink", "Button"],
        "referenceImages": ["path/to/section.png"],
-       "implementationNotes": "DETAILED section layout notes..."
+       "implementationNotes": "LAYERS: [if stacked layers exist, describe Figma layers → CSS collapse strategy] | Section layout, spacing, background details..."
      },
      "designTokens": {
        "colors": [{"hex": "#2A3B5C", "usage": "primary background"}],
@@ -362,7 +390,7 @@ Write the analysis to `.treble/analysis.json`:
           "fullWidth": true,
           "containedAtoms": ["Logo", "NavLink", "Button"],
           "referenceImages": [".treble/figma/contact/snapshots/navbar.png"],
-          "implementationNotes": "Sticky top nav, white bg, subtle bottom border (1px #E5E7EB).",
+          "implementationNotes": "LAYERS: single bg fill, no composition needed. | Sticky top nav, white bg, subtle bottom border (1px #E5E7EB).",
           "responsive": {
             "container": "full-bleed",
             "innerMaxWidth": "max-w-7xl",

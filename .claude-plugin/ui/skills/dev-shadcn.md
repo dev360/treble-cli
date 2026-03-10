@@ -220,6 +220,8 @@ Read the component's analysis entry from `analysis.json` (TEXT — this is fine 
 - `implementationNotes` — the detailed visual reproduction notes (THIS is your primary input)
 - `referenceImages` — paths to screenshots (read these in a subagent, not here)
 
+**For organisms/sections:** Also read the **section entry** from `pages.{page}.sections[]` in `analysis.json`. The section's `implementationNotes` contains layer composition strategy (prefixed with `LAYERS:`) that tells you how stacked Figma layers collapse into CSS. This is critical — multiple Figma layers often become a single HTML element with combined CSS. Do NOT create a separate `<div>` for every Figma layer. Follow the collapse strategy described in the notes.
+
 **Use a subagent to examine reference images.** Spawn an Agent that reads the referenceImages PNGs and returns a text description of what it sees — colors, layout, spacing, typography. This keeps images out of the main context.
 
 Read node properties for exact measurements (TEXT — fine in main context):
@@ -248,6 +250,7 @@ Write the component following these rules. **File placement follows the feature-
 - Use `SectionContainer` from `@/components/layout/SectionContainer` for full-bleed wrappers
 - File at `src/features/{feature}/components/{ComponentName}.tsx`
 - Sections are ALMOST NEVER reusable — they belong in their feature
+- **Layer composition** — if the section's `implementationNotes` starts with `LAYERS:`, follow the collapse strategy exactly. Multiple Figma layers (image fill + gradient overlay + decorative shapes) become minimal HTML: typically a `relative` container, one or two `absolute inset-0` overlay divs, and content at `relative z-10`. Do NOT create a `<div>` per Figma layer.
 
 **Layout components:**
 - Header, Footer, PageLayout, SectionContainer
