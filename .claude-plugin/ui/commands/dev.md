@@ -229,9 +229,9 @@ This is your clean baseline. Every component build after this gets its own commi
 
 ## Hand off
 
-Once the project is set up and runnable, hand off to the correct build skill from the plugin's `skills/` directory:
+Once the project is set up and runnable, hand off to the correct build skill:
 
-- **shadcn** (Next.js or Astro) → read and execute `skills/dev-shadcn.md`
-- **wordpress** → read and execute `skills/dev-basecoat-wp.md`
+- **shadcn** (Next.js or Astro) → invoke `/treble:dev-shadcn`
+- **wordpress** → invoke `/treble:dev-basecoat-wp`
 
 Pass through any arguments the user provided (e.g. component name).
