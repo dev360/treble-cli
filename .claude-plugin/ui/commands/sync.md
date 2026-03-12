@@ -71,6 +71,24 @@ If **no project** (no `.treble/config.toml`):
 
 If **project exists**, continue to Phase 2.
 
+## Guard Rail: Always discover before syncing
+
+If the user refers to a specific page or frame by name — or if it's unclear what should be synced — **always fetch the file structure first** so you know what's available.
+
+Run a discovery sync to list all pages and frames without actually syncing anything:
+
+```bash
+treble sync --frame "NONEXISTENT_FRAME_12345" 2>&1
+```
+
+This fetches the Figma file info (listing all pages and their top-level frames) but syncs nothing since no frame matches. Parse the output to build a complete inventory of pages and frames.
+
+**Why this matters:** Never blindly pass a user's page/frame name to `--page` or `--frame` without first confirming it exists. The user might be paraphrasing, using a partial name, or referring to something that doesn't exist. Discover first, then match.
+
+If the user's requested name doesn't exactly match any page or frame in the inventory, show them what's available and ask them to clarify.
+
+---
+
 ## Phase 2: Silent Scan
 
 Analyze the Figma file to help the user pick frames intelligently. Do NOT dump raw output to the user.
@@ -88,21 +106,11 @@ Check the `project` field for synced frame count. Also check if `.treble/figma/m
 
 ### 2b. Fetch file structure
 
-```bash
-treble tree --help
-```
-
-Wait — `treble tree` only works on already-synced frames. For the initial scan, we need to look at what `treble sync` would show.
-
-Run sync in interactive mode to discover frames, but DON'T let it execute — we just need the frame list:
+Run the discovery command from the guard rail above to get the full page/frame inventory:
 
 ```bash
-treble sync --force 2>&1 | head -20
+treble sync --frame "NONEXISTENT_FRAME_12345" 2>&1
 ```
-
-Actually, the better approach: peek at the file info by running init (which fetches and displays pages/frames) or use `treble status`. If already initialized, run a quick sync dry-run.
-
-**Better approach:** Run `treble sync --frame "NONEXISTENT_FRAME_12345"` — this will fetch the file info (listing pages and frames) but sync nothing since no frame matches. Capture the output to learn what's in the file.
 
 Parse the output to build a frame inventory:
 - Page names
