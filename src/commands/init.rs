@@ -1,7 +1,7 @@
 //! `treble init` — scaffold .treble/ in current project directory
 
-use crate::config::{GlobalConfig, ProjectConfig};
-use crate::figma::client::FigmaClient;
+use crate::config::GlobalConfig;
+use crate::config::ProjectConfig;
 use anyhow::{Context, Result};
 use colored::Colorize;
 use dialoguer::Input;
@@ -29,33 +29,52 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
         }
     };
 
-    // Validate the file key
-    let config = GlobalConfig::load()?;
-    let token = match config.figma_token.as_deref() {
-        Some(t) if !t.is_empty() => t,
-        _ => {
-            println!("\n  {} No Figma token found.\n", "Error:".red().bold());
-            println!("  Run one of these first:\n");
-            println!("    {}  Sign in via treble.build", "treble login".bold());
-            println!(
-                "    {}  Enter a Personal Access Token",
-                "treble login --pat".bold()
-            );
-            println!(
-                "    {}  Non-interactive\n",
-                "treble login --figma-token <TOKEN>".bold()
-            );
-            println!(
-                "  Create a PAT at: {}\n",
-                "https://www.figma.com/developers/api#access-tokens".underline()
-            );
-            std::process::exit(1);
-        }
-    };
-    let client = if config.is_oauth() {
-        FigmaClient::new_oauth(token)
+    // Validate the file key — resolve account
+    let mut config = GlobalConfig::load()?;
+
+    if config.accounts.is_empty() {
+        println!("\n  {} No Figma accounts found.\n", "Error:".red().bold());
+        println!("  Run one of these first:\n");
+        println!("    {}  Sign in via treble.build", "treble login".bold());
+        println!(
+            "    {}  Enter a Personal Access Token",
+            "treble login --pat".bold()
+        );
+        std::process::exit(1);
+    }
+
+    // If multiple accounts, let the user pick which one to bind
+    let selected_account_name = if config.accounts.len() > 1 {
+        let items: Vec<String> = config
+            .accounts
+            .iter()
+            .map(|a| {
+                let default_marker = if config.default_account.as_deref() == Some(&a.name) {
+                    " (default)"
+                } else {
+                    ""
+                };
+                let email = a.user_email.as_deref().unwrap_or("");
+                format!("{}{} — {} [{}]", a.name, default_marker, email, a.auth_type)
+            })
+            .collect();
+
+        let selection = dialoguer::Select::new()
+            .with_prompt("Which Figma account for this project?")
+            .items(&items)
+            .default(0)
+            .interact()?;
+
+        config.accounts[selection].name.clone()
     } else {
-        FigmaClient::new(token)
+        config.accounts[0].name.clone()
+    };
+
+    let account = config.resolve_account(None)?;
+    let client = if account.auth_type == "oauth" {
+        crate::figma::client::FigmaClient::new_oauth(&account.figma_token)
+    } else {
+        crate::figma::client::FigmaClient::new(&account.figma_token)
     };
 
     print!("Validating Figma file... ");
@@ -85,6 +104,10 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
     };
     project_config.save(&cwd)?;
 
+    // Bind project to selected account
+    config.bind_project(&cwd, &selected_account_name)?;
+    config.save()?;
+
     println!(
         "\n{} Initialized .treble/ in {}",
         "Done!".green().bold(),
@@ -92,6 +115,7 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
     );
     println!("  File key: {}", file_key.dimmed());
     println!("  Flavor:   {}", flavor.dimmed());
+    println!("  Account:  {}", selected_account_name.cyan());
     println!(
         "\nNext: run {} to pull Figma data to disk",
         "treble sync".bold()

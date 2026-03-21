@@ -29,6 +29,20 @@ enum Commands {
         /// Base URL for treble.build (default: https://treble.build)
         #[arg(long, default_value = "https://treble.build")]
         server: String,
+
+        /// Account name (default: derived from email)
+        #[arg(long = "as")]
+        account_name: Option<String>,
+    },
+
+    /// Remove a Figma account
+    Logout {
+        /// Account name to remove (interactive picker if omitted)
+        account: Option<String>,
+
+        /// Remove all accounts
+        #[arg(long)]
+        all: bool,
     },
 
     /// Scaffold .treble/ in the current project directory
@@ -129,7 +143,9 @@ async fn main() -> Result<()> {
             pat,
             figma_token,
             server,
-        } => commands::login::run(pat, figma_token, server).await,
+            account_name,
+        } => commands::login::run(pat, figma_token, server, account_name).await,
+        Commands::Logout { account, all } => commands::logout::run(account, all),
         Commands::Init { figma, flavor } => commands::init::run(figma, flavor).await,
         Commands::Sync {
             frame,

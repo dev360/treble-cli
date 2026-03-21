@@ -10,22 +10,27 @@ use serde_json::json;
 pub async fn run(json_output: bool) -> Result<()> {
     let config = GlobalConfig::load()?;
 
-    let has_token = config.figma_token.is_some();
-    let stored_email = config.user_email.clone();
-    let stored_name = config.user_name.clone();
-
     // Check if we're in a treble project
     let project = find_project_root()
         .ok()
         .and_then(|root| ProjectConfig::load(&root).ok().map(|pc| (root, pc)));
 
-    // Validate token against Figma API if we have one
+    let project_path = project.as_ref().map(|(root, _)| root.as_path());
+
+    // Resolve active account for this project
+    let active_account = config.resolve_account(project_path).ok();
+
+    // Validate active account's token against Figma API
     let mut token_valid = false;
     let mut api_email = None;
     let mut api_handle = None;
 
-    if config.figma_token.is_some() {
-        let client = config.figma_client()?;
+    if let Some(account) = active_account {
+        let client = if account.auth_type == "oauth" {
+            crate::figma::client::FigmaClient::new_oauth(&account.figma_token)
+        } else {
+            crate::figma::client::FigmaClient::new(&account.figma_token)
+        };
         match client.me().await {
             Ok(me) => {
                 token_valid = true;
@@ -39,12 +44,16 @@ pub async fn run(json_output: bool) -> Result<()> {
     }
 
     if json_output {
+        let has_token = active_account.is_some();
         let mut result = json!({
             "authenticated": has_token && token_valid,
             "hasToken": has_token,
             "tokenValid": token_valid,
         });
 
+        if let Some(account) = active_account {
+            result["activeAccount"] = json!(account.name);
+        }
         if let Some(email) = &api_email {
             result["email"] = json!(email);
         }
@@ -58,6 +67,21 @@ pub async fn run(json_output: bool) -> Result<()> {
             });
         }
 
+        // All accounts
+        let accounts_json: Vec<_> = config
+            .accounts
+            .iter()
+            .map(|a| {
+                json!({
+                    "name": a.name,
+                    "authType": a.auth_type,
+                    "email": a.user_email,
+                    "isDefault": config.default_account.as_deref() == Some(&a.name),
+                })
+            })
+            .collect();
+        result["accounts"] = json!(accounts_json);
+
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(());
     }
@@ -66,24 +90,54 @@ pub async fn run(json_output: bool) -> Result<()> {
     println!("{}", "treble status".bold());
     println!();
 
-    if !has_token {
-        println!("  {} Not authenticated", "Auth:".yellow());
+    // Show accounts
+    if config.accounts.is_empty() {
+        println!("  {} No accounts configured", "Auth:".yellow());
         println!("  Run: {}", "treble login --pat".cyan());
-    } else if !token_valid {
-        println!("  {} Token is invalid or expired", "Auth:".red());
-        println!("  Run: {}", "treble login --pat".cyan());
+    } else if config.accounts.len() == 1 {
+        let account = &config.accounts[0];
+        if !token_valid {
+            println!("  {} Token is invalid or expired", "Auth:".red());
+            println!("  Run: {}", "treble login --pat".cyan());
+        } else {
+            let identity = api_handle
+                .as_deref()
+                .or(api_email.as_deref())
+                .or(account.user_name.as_deref())
+                .or(account.user_email.as_deref())
+                .unwrap_or("unknown");
+            println!(
+                "  {} Logged in as {} ({})",
+                "Auth:".green(),
+                identity.white().bold(),
+                account.name.cyan()
+            );
+        }
     } else {
-        let identity = api_handle
-            .as_deref()
-            .or(api_email.as_deref())
-            .or(stored_name.as_deref())
-            .or(stored_email.as_deref())
-            .unwrap_or("unknown");
-        println!(
-            "  {} Logged in as {}",
-            "Auth:".green(),
-            identity.white().bold()
-        );
+        println!("  {} {} accounts", "Auth:".green(), config.accounts.len());
+        for account in &config.accounts {
+            let is_default = config.default_account.as_deref() == Some(&account.name);
+            let is_active = active_account
+                .map(|a| a.name == account.name)
+                .unwrap_or(false);
+
+            let markers = match (is_active, is_default) {
+                (true, true) => " (active, default)".dimmed().to_string(),
+                (true, false) => " (active)".dimmed().to_string(),
+                (false, true) => " (default)".dimmed().to_string(),
+                (false, false) => String::new(),
+            };
+
+            let email = account.user_email.as_deref().unwrap_or("");
+            println!(
+                "    {} {}{} — {} [{}]",
+                if is_active { ">" } else { " " },
+                account.name.cyan(),
+                markers,
+                email,
+                account.auth_type.dimmed()
+            );
+        }
     }
 
     if let Some((root, pc)) = &project {
@@ -93,6 +147,21 @@ pub async fn run(json_output: bool) -> Result<()> {
             root.display(),
             pc.figma_file_key.dimmed()
         );
+
+        // Show project binding
+        if let Some(account) = active_account {
+            let is_bound = config
+                .project_bindings
+                .iter()
+                .any(|b| b.account == account.name);
+            if is_bound {
+                println!(
+                    "  {} Bound to account {}",
+                    "Binding:".green(),
+                    account.name.cyan()
+                );
+            }
+        }
 
         // Check if any frames are synced
         let figma_dir = root.join(".treble").join("figma");

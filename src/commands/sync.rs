@@ -65,7 +65,7 @@ pub async fn run(
     let project_root = find_project_root()?;
     let project_config = ProjectConfig::load(&project_root)?;
     let global_config = GlobalConfig::load()?;
-    let client = global_config.figma_client()?;
+    let client = global_config.figma_client(Some(&project_root))?;
 
     let file_key = &project_config.figma_file_key;
     let figma_dir = project_root.join(".treble").join("figma");

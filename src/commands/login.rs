@@ -4,8 +4,10 @@
 //! 1. `treble login` — device flow via treble.build (OAuth)
 //! 2. `treble login --pat` — interactive PAT entry
 //! 3. `treble login --figma-token <token>` — non-interactive (for scripts/agents)
+//!
+//! Multi-account: `--as <name>` sets a custom account name.
 
-use crate::config::GlobalConfig;
+use crate::config::{derive_account_slug, Account, GlobalConfig};
 use crate::figma::client::FigmaClient;
 use anyhow::{Context, Result};
 use colored::Colorize;
@@ -62,22 +64,27 @@ struct FigmaTokenUser {
 
 // ── Entry point ─────────────────────────────────────────────────────────
 
-pub async fn run(pat_mode: bool, figma_token: Option<String>, server: String) -> Result<()> {
+pub async fn run(
+    pat_mode: bool,
+    figma_token: Option<String>,
+    server: String,
+    account_name: Option<String>,
+) -> Result<()> {
     // Non-interactive: --figma-token flag
     if let Some(token) = figma_token {
-        return run_token_login(&token).await;
+        return run_token_login(&token, account_name).await;
     }
 
     if pat_mode {
-        return run_pat_login().await;
+        return run_pat_login(account_name).await;
     }
 
-    run_device_login(&server).await
+    run_device_login(&server, account_name).await
 }
 
 // ── Non-interactive token login ─────────────────────────────────────────
 
-async fn run_token_login(token: &str) -> Result<()> {
+async fn run_token_login(token: &str, account_name: Option<String>) -> Result<()> {
     let mut config = GlobalConfig::load()?;
     let token = token.trim();
 
@@ -86,13 +93,23 @@ async fn run_token_login(token: &str) -> Result<()> {
     match client.me().await {
         Ok(me) => {
             println!("{}", format!("{} ({})", me.handle, me.email).green());
-            config.figma_token = Some(token.to_string());
-            config.user_email = Some(me.email);
-            config.user_name = Some(me.handle);
-            // Clear any stale OAuth fields so is_oauth() returns false
-            config.session_token = None;
-            config.figma_refresh_token = None;
-            config.figma_token_expires_at = None;
+
+            let name = account_name
+                .unwrap_or_else(|| derive_account_slug(Some(&me.email), Some(&me.handle)));
+
+            let account = Account {
+                name: name.clone(),
+                figma_token: token.to_string(),
+                auth_type: "pat".to_string(),
+                session_token: None,
+                figma_refresh_token: None,
+                figma_token_expires_at: None,
+                user_email: Some(me.email),
+                user_name: Some(me.handle),
+            };
+
+            config.upsert_account(account);
+            println!("  Account: {}", name.cyan().bold());
         }
         Err(e) => {
             println!("{}", format!("Failed: {e}").red());
@@ -117,7 +134,7 @@ async fn run_token_login(token: &str) -> Result<()> {
 
 // ── Device authorization flow ───────────────────────────────────────────
 
-async fn run_device_login(server: &str) -> Result<()> {
+async fn run_device_login(server: &str, account_name: Option<String>) -> Result<()> {
     let http = reqwest::Client::new();
     let mut config = GlobalConfig::load()?;
 
@@ -136,7 +153,7 @@ async fn run_device_login(server: &str) -> Result<()> {
         Err(_) => {
             println!("  {} Could not reach {server}", "Note:".yellow());
             println!("  Falling back to manual Figma PAT entry.\n");
-            return run_pat_login().await;
+            return run_pat_login(account_name).await;
         }
     };
 
@@ -265,23 +282,29 @@ async fn run_device_login(server: &str) -> Result<()> {
 
     println!("{}", "done".green());
 
-    // Step 5: Save to config
-    config.figma_token = Some(figma_token);
-    config.session_token = Some(session_token);
-    config.figma_refresh_token = figma_resp.figma_refresh_token;
-    config.figma_token_expires_at = figma_resp.expires_at;
+    // Step 5: Build account and save
+    let user_email = figma_resp.user.as_ref().and_then(|u| u.email.clone());
+    let user_name = figma_resp.user.as_ref().and_then(|u| u.name.clone());
+    let name = account_name
+        .unwrap_or_else(|| derive_account_slug(user_email.as_deref(), user_name.as_deref()));
 
-    if let Some(user) = figma_resp.user {
-        config.user_email = user.email.clone();
-        config.user_name = user.name.clone();
-    }
+    let account = Account {
+        name: name.clone(),
+        figma_token,
+        auth_type: "oauth".to_string(),
+        session_token: Some(session_token),
+        figma_refresh_token: figma_resp.figma_refresh_token,
+        figma_token_expires_at: figma_resp.expires_at,
+        user_email: user_email.clone(),
+        user_name: user_name.clone(),
+    };
 
+    config.upsert_account(account);
     config.save()?;
 
-    let identity = config
-        .user_email
+    let identity = user_email
         .as_deref()
-        .or(config.user_name.as_deref())
+        .or(user_name.as_deref())
         .unwrap_or("unknown");
 
     println!();
@@ -290,6 +313,7 @@ async fn run_device_login(server: &str) -> Result<()> {
         "Done!".green().bold(),
         identity.white().bold()
     );
+    println!("  Account: {}", name.cyan().bold());
     println!("  Credentials saved to {}", GlobalConfig::path()?.display());
 
     Ok(())
@@ -297,7 +321,7 @@ async fn run_device_login(server: &str) -> Result<()> {
 
 // ── Manual PAT flow ─────────────────────────────────────────────────────
 
-async fn run_pat_login() -> Result<()> {
+async fn run_pat_login(account_name: Option<String>) -> Result<()> {
     let mut config = GlobalConfig::load()?;
 
     println!("{}", "Figma Personal Access Token".bold());
@@ -306,7 +330,7 @@ async fn run_pat_login() -> Result<()> {
         "  Generate one at: {}",
         "https://www.figma.com/settings".underline().cyan()
     );
-    println!("  → Security tab → Personal access tokens → Generate new token");
+    println!("  -> Security tab -> Personal access tokens -> Generate new token");
     println!(
         "  Required scopes: {}, {}",
         "file_content:read".white().bold(),
@@ -327,13 +351,23 @@ async fn run_pat_login() -> Result<()> {
                 "{}",
                 format!("Logged in as {} ({})", me.handle, me.email).green()
             );
-            config.figma_token = Some(token);
-            config.user_email = Some(me.email);
-            config.user_name = Some(me.handle);
-            // Clear any stale OAuth fields so is_oauth() returns false
-            config.session_token = None;
-            config.figma_refresh_token = None;
-            config.figma_token_expires_at = None;
+
+            let name = account_name
+                .unwrap_or_else(|| derive_account_slug(Some(&me.email), Some(&me.handle)));
+
+            let account = Account {
+                name: name.clone(),
+                figma_token: token,
+                auth_type: "pat".to_string(),
+                session_token: None,
+                figma_refresh_token: None,
+                figma_token_expires_at: None,
+                user_email: Some(me.email),
+                user_name: Some(me.handle),
+            };
+
+            config.upsert_account(account);
+            println!("  Account: {}", name.cyan().bold());
         }
         Err(e) => {
             println!("{}", format!("Failed: {e}").red());
