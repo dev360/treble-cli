@@ -1,3 +1,10 @@
+## [1.1.11](https://github.com/treble-app/cli/compare/v1.1.10...v1.1.11) (2026-03-21)
+
+
+### Bug Fixes
+
+* PAT login fails when stale OAuth fields exist ([a9852eb](https://github.com/treble-app/cli/commit/a9852eb88680b8a8a9d2c0df7b3a3216f9776cc2))
+
 ## [1.1.10](https://github.com/treble-app/cli/compare/v1.1.9...v1.1.10) (2026-03-12)
 
 
