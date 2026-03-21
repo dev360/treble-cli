@@ -68,7 +68,10 @@ impl GlobalConfig {
     /// Returns true if the stored token came from OAuth (device flow login)
     /// vs a Personal Access Token (--pat or --figma-token).
     pub fn is_oauth(&self) -> bool {
-        self.session_token.is_some()
+        self.session_token
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
     }
 
     /// Create a FigmaClient with the right auth header (OAuth Bearer vs PAT).

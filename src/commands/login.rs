@@ -89,6 +89,10 @@ async fn run_token_login(token: &str) -> Result<()> {
             config.figma_token = Some(token.to_string());
             config.user_email = Some(me.email);
             config.user_name = Some(me.handle);
+            // Clear any stale OAuth fields so is_oauth() returns false
+            config.session_token = None;
+            config.figma_refresh_token = None;
+            config.figma_token_expires_at = None;
         }
         Err(e) => {
             println!("{}", format!("Failed: {e}").red());
@@ -326,6 +330,10 @@ async fn run_pat_login() -> Result<()> {
             config.figma_token = Some(token);
             config.user_email = Some(me.email);
             config.user_name = Some(me.handle);
+            // Clear any stale OAuth fields so is_oauth() returns false
+            config.session_token = None;
+            config.figma_refresh_token = None;
+            config.figma_token_expires_at = None;
         }
         Err(e) => {
             println!("{}", format!("Failed: {e}").red());
