@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/treble-app/cli/compare/v1.1.11...v1.2.0) (2026-03-21)
+
+
+### Features
+
+* multi-account Figma auth with login --as, logout, and project bindings ([51476b9](https://github.com/treble-app/cli/commit/51476b9c47439625322fa2d7822c2556a349498e))
+
 ## [1.1.11](https://github.com/treble-app/cli/compare/v1.1.10...v1.1.11) (2026-03-21)
 
 
