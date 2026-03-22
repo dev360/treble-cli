@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/treble-app/cli/compare/v1.2.0...v1.2.1) (2026-03-22)
+
+
+### Bug Fixes
+
+* add visual pipeline preflight and stronger mission to dev prompt ([f93b30e](https://github.com/treble-app/cli/commit/f93b30e7bc69f260860f0282bb8a204934b79a77))
+
 # [1.2.0](https://github.com/treble-app/cli/compare/v1.1.11...v1.2.0) (2026-03-21)
 
 

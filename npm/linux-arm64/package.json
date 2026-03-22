@@ -1,6 +1,6 @@
 {
   "name": "@treble-app/cli-linux-arm64",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "treble CLI binary for Linux ARM64",
   "license": "MIT",
   "repository": {
