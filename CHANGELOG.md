@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/treble-app/cli/compare/v1.2.1...v1.3.0) (2026-03-22)
+
+
+### Bug Fixes
+
+* correct plugin install instructions in README ([fa2c06a](https://github.com/treble-app/cli/commit/fa2c06aa0ef268f80120c7786a2f7ebd31acc533))
+
+
+### Features
+
+* detect Claude Code plugin in treble init ([d43a277](https://github.com/treble-app/cli/commit/d43a277b90348ada350feee4b97e1e7dc0b2af0a))
+
 ## [1.2.1](https://github.com/treble-app/cli/compare/v1.2.0...v1.2.1) (2026-03-22)
 
 
