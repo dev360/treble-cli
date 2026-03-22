@@ -116,12 +116,68 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
     println!("  File key: {}", file_key.dimmed());
     println!("  Flavor:   {}", flavor.dimmed());
     println!("  Account:  {}", selected_account_name.cyan());
+
+    // Check Claude Code plugin status
+    check_claude_plugin();
+
     println!(
         "\nNext: run {} to pull Figma data to disk",
         "treble sync".bold()
     );
 
     Ok(())
+}
+
+/// Check if the Treble Claude Code plugin is installed and print guidance.
+fn check_claude_plugin() {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return,
+    };
+
+    let plugins_dir = home.join(".claude").join("plugins");
+
+    // Check if marketplace is registered
+    let marketplace_added = plugins_dir.join("known_marketplaces.json").is_file()
+        && std::fs::read_to_string(plugins_dir.join("known_marketplaces.json"))
+            .map(|c| c.contains("\"treble-app\""))
+            .unwrap_or(false);
+
+    // Check if plugin is installed
+    let plugin_installed = plugins_dir.join("installed_plugins.json").is_file()
+        && std::fs::read_to_string(plugins_dir.join("installed_plugins.json"))
+            .map(|c| c.contains("\"treble@treble-app\""))
+            .unwrap_or(false);
+
+    if plugin_installed {
+        return;
+    }
+
+    println!();
+    println!(
+        "  {} Treble Claude plugin not detected.",
+        "Note:".yellow().bold()
+    );
+    println!(
+        "  The CLI needs its Claude Code plugin for {}, {}, etc.",
+        "/treble:dev".bold(),
+        "/treble:plan".bold()
+    );
+    println!();
+
+    if !marketplace_added {
+        println!("  Run these in your terminal:");
+        println!();
+        println!(
+            "    {}",
+            "claude plugin marketplace add treble-app/cli".bold()
+        );
+        println!("    {}", "claude plugin install treble".bold());
+    } else {
+        println!("  Run this in your terminal:");
+        println!();
+        println!("    {}", "claude plugin install treble".bold());
+    }
 }
 
 /// Extract a Figma file key from a URL or raw key string.
