@@ -41,10 +41,9 @@ The output is a real project — `npm run dev` works, components match the Figma
 
 ### 1. Install the Claude Code plugin
 
-In [Claude Code](https://claude.ai/code):
-
-```
-/install-plugin treble-app/cli
+```bash
+claude plugin marketplace add treble-app/cli
+claude plugin install treble
 ```
 
 ### 2. Install the CLI
