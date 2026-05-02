@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/treble-app/cli/compare/v1.3.0...v1.3.1) (2026-05-02)
+
+
+### Bug Fixes
+
+* add verification gate and force Sonnet for visual diff subagents ([cbcc26d](https://github.com/treble-app/cli/commit/cbcc26db407c158ca58c273578e06b8d26725350))
+
 # [1.3.0](https://github.com/treble-app/cli/compare/v1.2.1...v1.3.0) (2026-03-22)
 
 
