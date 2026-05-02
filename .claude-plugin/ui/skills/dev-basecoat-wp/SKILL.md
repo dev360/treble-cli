@@ -48,7 +48,27 @@ If no Basecoat equivalent exists, build it from scratch with Tailwind classes.
 
 When you need to see a Figma reference or compare visuals, spawn a subagent to do the image work and return text results.
 
+**Always pass `model: "sonnet"` when invoking the `Agent` tool for visual diffing.** Sonnet 4.6 is more than capable for pixel-level UI comparison. The orchestrator's default (Opus) wastes context+cost budget on a task that doesn't need it, and visual diffing happens once per component — across a 20-component build that adds up fast.
+
 If you see "image dimension limit" errors, run `/compact` before continuing.
+
+## Verification Gate (TRUST-CRITICAL)
+
+**Never write `status: "implemented"` for an organism or page without a successful visual diff.** "It rendered" is not a review. If you cannot diff, STOP and ask the user — do not silently advance.
+
+A diff is successful only if all three hold:
+
+1. `.treble/screenshots/{ComponentName}-impl.png` exists on disk (verify with `ls`).
+2. `referenceImages[0]` exists on disk (or `treble show` produced one).
+3. The Sonnet diff subagent returned parseable JSON with `overall` and a non-empty `sections[]`.
+
+If any fails → write `status: "blocked"` + `blockReason: "<cause>"` to build-state.json, **STOP the loop**, and surface the blocker to the user (name the component, name the cause, ask one concrete question — usually "is the WordPress container up on port X?").
+
+**`"blocked"` ≠ `"skipped"`:**
+- `"skipped"` = diff ran 3× successfully, never hit MATCH → acceptable, loop continues.
+- `"blocked"` = diff never produced a valid result → halt loop, await user.
+
+**Atoms exemption:** Atomic primitives skip visual review entirely. They're the only exception to this gate.
 
 ## Prerequisites
 
@@ -312,30 +332,44 @@ Spawn a `chrome-devtools-tester` subagent to screenshot the running WordPress si
 
 ```
 Navigate to localhost:{wpPort}/?page_id={id} (or the page using this template).
+If unreachable / 4xx / 5xx — DO NOT screenshot. Return "BLOCKED: <reason>" and stop.
 Wait for the page to fully load.
 Take a full-page screenshot at 1440px width.
 Save it to .treble/screenshots/{ComponentName}-impl.png
 Also take section-level screenshots if the page is long.
-Return the file paths of all screenshots taken.
+Return the file paths. If no screenshot was produced, return "BLOCKED: <reason>".
 ```
+
+**Gate check:** `ls` the screenshot path. If missing or the subagent returned `"BLOCKED: ..."` → write `status: "blocked"` and STOP per the Verification Gate.
 
 **Note:** You may need to create a WordPress page and assign the template first. Use WP-CLI inside the Docker container:
 ```bash
 docker-compose exec wordpress wp post create --post_type=page --post_title="{PageName}" --post_status=publish --page_template="templates/template-{page}.php" --allow-root
 ```
 
-**Step 4b: Compare against Figma reference**
+**Step 4b: Compare against Figma reference — in a Sonnet subagent**
 
-Same comparison process as all targets — spawn a `general-purpose` subagent that reads BOTH images and does a harsh section-by-section visual comparison. Returns JSON with ratings and discrepancies.
+> **DO NOT** call the `Read` tool on `referenceImages[*]` or `.treble/screenshots/*.png` in this conversation. The diff happens **only** inside a subagent. You receive JSON; you never receive pixels.
+
+Invoke the `Agent` tool with these **exact** parameters:
+
+- `subagent_type`: `"general-purpose"`
+- `model`: `"sonnet"` — REQUIRED. Do not omit. Sonnet 4.6 handles visual diffing fine and keeps Opus context+cost budget intact across the build loop.
+- `description`: `"Visual diff: {ComponentName}"`
+- `prompt`: a harsh section-by-section visual comparison prompt (see the dev-shadcn skill for the full template), instructing the subagent to Read both images, rate each section MATCH/CLOSE/WRONG, and return ONLY a JSON object with `overall`, `sections[].name`, `sections[].rating`, `sections[].discrepancies`, `sections[].suggestions`.
+
+You receive the JSON back. Work from the `discrepancies` and `suggestions` text — do NOT re-open the screenshots in the main conversation.
+
+**Gate check:** Response must be parseable JSON with `overall` + non-empty `sections[]`. If prose, refused, or malformed → write `status: "blocked"` + `blockReason: "diff returned invalid response"` and STOP.
 
 **Step 4c: Fix discrepancies**
 
-If the comparison found issues (anything rated WRONG or CLOSE with significant discrepancies):
+If the diff ran successfully but rated sections WRONG/CLOSE:
 1. Fix the code based on the specific suggestions
 2. Re-run step 4a and 4b
-3. Max 3 attempts before marking as `"skipped"`
+3. Max 3 attempts before marking `"skipped"` — `"skipped"` is ONLY for components where the diff ran 3× and didn't reach MATCH. It is NOT a fallback for "I couldn't run the diff" — that case is `"blocked"` and the loop must STOP.
 
-Write the visual review result to `build-state.json`.
+Write the visual review result to `build-state.json` only after a successful diff.
 
 **SKIP visual review for atoms** — only compare organisms and pages.
 

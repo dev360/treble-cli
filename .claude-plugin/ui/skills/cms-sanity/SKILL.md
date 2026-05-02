@@ -438,6 +438,8 @@ export function SectionRenderer({ sections }: SectionRendererProps) {
 
 Same two-tier review as the dev build. This is not optional.
 
+> **DO NOT** call the `Read` tool on any PNG file in this conversation. The diff happens **only** inside a subagent. You receive JSON; you never receive pixels.
+
 **Tier 1: Regression check (pre-CMS vs post-CMS)**
 
 Spawn a `chrome-devtools-tester` subagent:
@@ -447,9 +449,15 @@ Wait for full load. Screenshot at 1440px width.
 Save to .treble/screenshots/{PageName}-cms.png
 ```
 
-Spawn a `general-purpose` subagent to compare:
+Then invoke the `Agent` tool with these **exact** parameters:
+
+- `subagent_type`: `"general-purpose"`
+- `model`: `"sonnet"` — REQUIRED. Do not omit. Sonnet 4.6 handles visual diffing fine and keeps Opus budget intact.
+- `description`: `"Regression diff: {PageName}"`
+- `prompt`:
+
 ```
-Compare these two images section by section:
+Use the Read tool to load BOTH images, then compare them section by section:
 PRE-CMS: .treble/screenshots/{PageName}-impl.png
 POST-CMS: .treble/screenshots/{PageName}-cms.png
 
@@ -462,12 +470,13 @@ For EACH section, report:
 6. IMAGES/ICONS — size, position, aspect ratio
 
 Be HARSH. Rate each section: MATCH / CLOSE / WRONG.
-Return JSON: { "overall": "...", "sections": [...] }
+Return ONLY JSON — no prose, no markdown fences:
+{ "overall": "...", "sections": [...] }
 ```
 
 **Tier 2: Figma fidelity check**
 
-Same subagent pattern, but compare POST-CMS against the Figma reference:
+Same `Agent` invocation pattern (`subagent_type: "general-purpose"`, `model: "sonnet"`), but compare POST-CMS against the Figma reference:
 ```
 FIGMA: .treble/figma/{slug}/reference.png
 IMPL: .treble/screenshots/{PageName}-cms.png

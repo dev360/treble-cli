@@ -714,15 +714,22 @@ Also take section-level screenshots if the page is long — scroll to each secti
 Return the file paths of all screenshots taken.
 ```
 
-### 5b. Tier 1 — Regression check (post-CMS vs pre-CMS)
+### 5b. Tier 1 — Regression check (post-CMS vs pre-CMS) — in a Sonnet subagent
 
-Spawn a `general-purpose` subagent that reads BOTH screenshots and compares them:
+> **DO NOT** call the `Read` tool on any PNG file in this conversation. The diff happens **only** inside a subagent. You receive JSON; you never receive pixels.
+
+Invoke the `Agent` tool with these **exact** parameters:
+
+- `subagent_type`: `"general-purpose"`
+- `model`: `"sonnet"` — REQUIRED. Do not omit. Sonnet 4.6 handles visual diffing fine and keeps Opus context+cost budget intact across the build loop.
+- `description`: `"Regression diff: {PageName}"`
+- `prompt`:
 
 ```
-You are doing a pixel-level visual comparison between the pre-CMS and post-CMS builds. These should be nearly identical — the CMS step only swaps content sources, not layout or styling.
+You are doing a pixel-level visual comparison between the pre-CMS and post-CMS builds. These should be nearly identical — the CMS step only swaps content sources, not layout or styling. Use the Read tool to load BOTH images.
 
-PRE-CMS: Read the file at .treble/screenshots/{PageName}-impl.png
-POST-CMS: Read the file at .treble/screenshots/{PageName}-cms.png
+PRE-CMS: .treble/screenshots/{PageName}-impl.png
+POST-CMS: .treble/screenshots/{PageName}-cms.png
 
 Compare these two images section by section. For EACH visual section (nav, hero, features, footer, etc.), report:
 
@@ -735,7 +742,7 @@ Compare these two images section by section. For EACH visual section (nav, hero,
 
 Be HARSH. Flag every difference you see, no matter how small. Rate each section: MATCH / CLOSE / WRONG.
 
-Return JSON:
+Return ONLY this JSON object — no prose, no markdown fences:
 {
   "overall": "MATCH|CLOSE|WRONG",
   "sections": [
@@ -758,15 +765,22 @@ Return JSON:
 - Missing content → check field names / attribute names
 - Block wrapper adds extra div → adjust CSS selectors
 
-### 5c. Tier 2 — Figma fidelity check (post-CMS vs Figma reference)
+### 5c. Tier 2 — Figma fidelity check (post-CMS vs Figma reference) — in a Sonnet subagent
 
-Spawn a `general-purpose` subagent that reads BOTH images and compares them:
+> **DO NOT** call the `Read` tool on any PNG file in this conversation. The diff happens **only** inside a subagent.
+
+Invoke the `Agent` tool with these **exact** parameters:
+
+- `subagent_type`: `"general-purpose"`
+- `model`: `"sonnet"` — REQUIRED. Do not omit.
+- `description`: `"Figma diff: {PageName}"`
+- `prompt`:
 
 ```
-You are doing a pixel-level visual comparison between a Figma design and a web implementation.
+You are doing a pixel-level visual comparison between a Figma design and a web implementation. Use the Read tool to load BOTH images.
 
-FIGMA REFERENCE: Read the file at {referenceImages[0]}
-IMPLEMENTATION: Read the file at .treble/screenshots/{PageName}-cms.png
+FIGMA REFERENCE: {referenceImages[0]}
+IMPLEMENTATION: .treble/screenshots/{PageName}-cms.png
 
 Compare these two images section by section. For EACH visual section (nav, hero, features, footer, etc.), report:
 
