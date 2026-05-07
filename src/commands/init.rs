@@ -81,12 +81,7 @@ pub async fn run(figma_arg: Option<String>, flavor: String) -> Result<()> {
     match client.get_file(&file_key).await {
         Ok(file) => {
             println!("{}", format!("\"{}\"", file.name).green());
-
-            // Show pages
-            for page in &file.document.children {
-                let frame_count = page.children.len();
-                println!("  {} {} ({} frames)", "→".dimmed(), page.name, frame_count);
-            }
+            print_page_tree(&file.document.children);
         }
         Err(e) => {
             println!("{}", format!("Failed: {e}").red());
@@ -180,6 +175,128 @@ fn check_claude_plugin() {
     }
 }
 
+// ── Page-tree pretty printer ────────────────────────────────────────────
+//
+// Figma "pages" are a flat list, but designers fake hierarchy with naming
+// conventions: ALL-CAPS / "✨"-prefixed names with 0 frames are section
+// headers; "↳"-prefixed names are children; runs of dashes/dots are
+// dividers. We detect those, throw away the dividers, and render a real
+// tree with proper └── / ├── / │  branch glyphs.
+
+use crate::figma::types::CanvasNode;
+
+enum Item {
+    Section {
+        label: String,
+        leaves: Vec<(String, usize)>,
+    },
+    Leaf {
+        name: String,
+        count: usize,
+    },
+}
+
+fn print_page_tree(canvas_pages: &[CanvasNode]) {
+    let items = build_items(canvas_pages);
+
+    let total_frames: usize = canvas_pages.iter().map(|p| p.children.len()).sum();
+    let total_pages: usize = canvas_pages
+        .iter()
+        .filter(|p| !p.children.is_empty())
+        .count();
+
+    let last = items.len().saturating_sub(1);
+    for (i, item) in items.iter().enumerate() {
+        let is_last = i == last;
+        let branch = if is_last { "└──" } else { "├──" };
+        let trunk = if is_last { "    " } else { "│   " };
+
+        match item {
+            Item::Section { label, leaves } => {
+                println!("  {} {}", branch.dimmed(), label.bold());
+                let llast = leaves.len().saturating_sub(1);
+                for (li, (name, count)) in leaves.iter().enumerate() {
+                    let lbranch = if li == llast {
+                        "└──"
+                    } else {
+                        "├──"
+                    };
+                    println!(
+                        "  {}{} {} {}",
+                        trunk.dimmed(),
+                        lbranch.dimmed(),
+                        name,
+                        format!("({count} frames)").dimmed()
+                    );
+                }
+            }
+            Item::Leaf { name, count } => {
+                println!(
+                    "  {} {} {}",
+                    branch.dimmed(),
+                    name,
+                    format!("({count} frames)").dimmed()
+                );
+            }
+        }
+    }
+
+    println!();
+    println!(
+        "  {}",
+        format!("{total_pages} pages, {total_frames} frames").dimmed()
+    );
+}
+
+fn build_items(canvas_pages: &[CanvasNode]) -> Vec<Item> {
+    let mut items: Vec<Item> = Vec::new();
+    let mut current_section: Option<(String, Vec<(String, usize)>)> = None;
+
+    for page in canvas_pages {
+        let raw = page.name.trim();
+        let frame_count = page.children.len();
+
+        if frame_count == 0 {
+            if is_divider(raw) {
+                continue;
+            }
+            // New section header — flush the previous one.
+            if let Some((label, leaves)) = current_section.take() {
+                items.push(Item::Section { label, leaves });
+            }
+            current_section = Some((strip_page_decoration(raw), Vec::new()));
+        } else {
+            let leaf = (strip_page_decoration(raw), frame_count);
+            match current_section.as_mut() {
+                Some((_, leaves)) => leaves.push(leaf),
+                None => items.push(Item::Leaf {
+                    name: leaf.0,
+                    count: leaf.1,
+                }),
+            }
+        }
+    }
+    if let Some((label, leaves)) = current_section {
+        items.push(Item::Section { label, leaves });
+    }
+    items
+}
+
+/// True when the page name is purely visual punctuation (e.g. "----",
+/// "- - - - -", ".....") — Figma users insert these as dividers.
+fn is_divider(name: &str) -> bool {
+    name.chars().filter(|c| c.is_alphabetic()).count() < 3
+}
+
+/// Strip the leading hierarchy markers ("↳", "✨") and surrounding
+/// whitespace, then collapse internal whitespace runs.
+fn strip_page_decoration(name: &str) -> String {
+    let trimmed = name.trim_start_matches(|c: char| {
+        c.is_whitespace() || c == '↳' || c == '✨' || c == '→' || c == '*'
+    });
+    trimmed.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Extract a Figma file key from a URL or raw key string.
 /// Handles:
 ///   - "abc123DEFghiJKL" (raw key)
@@ -231,5 +348,32 @@ mod tests {
             extract_file_key("https://www.figma.com/file/abc123DEFghiJKL"),
             "abc123DEFghiJKL"
         );
+    }
+
+    #[test]
+    fn test_is_divider() {
+        assert!(is_divider("----"));
+        assert!(is_divider("- - - - -"));
+        assert!(is_divider("...."));
+        assert!(is_divider("--"));
+        assert!(!is_divider("BRAND SUPPORT"));
+        assert!(!is_divider("✨ LinkedIn Posts"));
+    }
+
+    #[test]
+    fn test_strip_page_decoration() {
+        assert_eq!(
+            strip_page_decoration("↳ Town Hall Designs"),
+            "Town Hall Designs"
+        );
+        assert_eq!(
+            strip_page_decoration("✨ Brand Support – Marketing Materials"),
+            "Brand Support – Marketing Materials"
+        );
+        assert_eq!(strip_page_decoration("BRAND SUPPORT"), "BRAND SUPPORT");
+        // Emoji that aren't markers stay put.
+        assert_eq!(strip_page_decoration("📌 Thumbnail"), "📌 Thumbnail");
+        // Internal whitespace collapses.
+        assert_eq!(strip_page_decoration("↳   AHIMA  2025"), "AHIMA 2025");
     }
 }
