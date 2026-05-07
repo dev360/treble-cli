@@ -77,6 +77,11 @@ enum Commands {
         /// Interactively browse pages and pick frames to sync
         #[arg(long, short)]
         interactive: bool,
+
+        /// Bypass the safety gate and sync everything. Use only on small or already-scoped files —
+        /// without this flag, syncs above 50 frames open the interactive picker instead.
+        #[arg(long)]
+        all: bool,
     },
 
     /// Show the layer tree for a frame (reads from synced data on disk)
@@ -153,7 +158,8 @@ async fn main() -> Result<()> {
             node,
             force,
             interactive,
-        } => commands::sync::run(frame, page, node, force, interactive).await,
+            all,
+        } => commands::sync::run(frame, page, node, force, interactive, all).await,
         Commands::Extract { frame } => commands::extract::run(frame).await,
         Commands::Status { json } => commands::status::run(json).await,
         Commands::Tree {

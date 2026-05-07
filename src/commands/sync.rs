@@ -22,6 +22,18 @@ use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::collections::HashSet;
 
+/// Refuse to download more than this many frames in one shot without an
+/// explicit opt-in. 50 covers typical project files; library files (which
+/// caused the 4 GB sync incident) blow well past it.
+const SYNC_GATE_FRAME_COUNT: usize = 50;
+
+/// True when both stdin and stdout are real terminals.
+/// Used to decide whether we can safely draw the picker.
+fn is_tty() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdout().is_terminal() && std::io::stdin().is_terminal()
+}
+
 /// A frame candidate collected from the Figma file.
 struct FrameInfo {
     id: String,
@@ -61,6 +73,7 @@ pub async fn run(
     node_filter: Option<String>,
     force: bool,
     interactive: bool,
+    all_override: bool,
 ) -> Result<()> {
     let project_root = find_project_root()?;
     let project_config = ProjectConfig::load(&project_root)?;
@@ -116,6 +129,21 @@ pub async fn run(
 
     // ── Step 2b: Filter frames ──────────────────────────────────────────
     let node_id = node_filter.map(|n| extract_node_id(&n));
+
+    // The picker uses crossterm raw mode; in a non-TTY (CI, piped input,
+    // pipe to cat) it would crash with `Device not configured`. Fail fast
+    // with an actionable message instead.
+    if interactive && !is_tty() {
+        anyhow::bail!(
+            "{} requires a terminal — re-run from an interactive shell, \
+             or use --frame/--page/--node to scope the sync.",
+            "-i".cyan()
+        );
+    }
+
+    // Did the picker run? Either via explicit -i, or because the gate
+    // routed us into it. Used below for orphan-deletion logic.
+    let mut picker_used = interactive;
 
     let selected_indices: Vec<usize> = if interactive {
         interactive_select(&file.document.children, &all_frames)?
@@ -196,8 +224,31 @@ pub async fn run(
             .collect()
     };
 
+    // ── Step 2c: Sync-size guardrail ────────────────────────────────────
+    // If the resolved selection is huge AND the user didn't explicitly opt
+    // in (`--all`, `--node`, or `-i`), refuse to silently download a whole
+    // library. In a TTY we route into the existing picker as a wizard;
+    // in a non-TTY we hard-refuse with an actionable message.
+    let bypass_gate = all_override || node_id.is_some() || interactive;
+    let selected_indices: Vec<usize> =
+        if !bypass_gate && selected_indices.len() > SYNC_GATE_FRAME_COUNT {
+            let count = selected_indices.len();
+            let had_filter = frame_filter.is_some() || page_filter.is_some();
+
+            if is_tty() {
+                print_gate_intro(count, had_filter, &file.name);
+                picker_used = true;
+                interactive_select(&file.document.children, &all_frames)?
+            } else {
+                print_gate_refusal(count, had_filter);
+                std::process::exit(2);
+            }
+        } else {
+            selected_indices
+        };
+
     if selected_indices.is_empty() {
-        if interactive {
+        if interactive || picker_used {
             println!("{}", "Cancelled.".dimmed());
             return Ok(());
         }
@@ -220,7 +271,7 @@ pub async fn run(
     };
 
     let is_filtered =
-        frame_filter.is_some() || page_filter.is_some() || node_id.is_some() || interactive;
+        frame_filter.is_some() || page_filter.is_some() || node_id.is_some() || picker_used;
     println!("  {} frames to sync\n", frames.len());
 
     // ── Step 3: Load existing manifest for diff + incremental sync ─────
@@ -593,6 +644,48 @@ fn selected_count(page: &PageNode) -> (usize, usize) {
     (selected, total)
 }
 
+/// Where the cursor lives while the search palette is open: either in
+/// the input field (typing) or on a result row (about to toggle).
+#[derive(Clone, Copy)]
+enum SearchCursor {
+    Input,
+    Result(usize),
+}
+
+/// (page_idx, frame_idx) pointing back into the `pages` model — search
+/// is just a shortcut to the same `selected` bits, not a separate basket.
+#[derive(Clone, Copy)]
+struct SearchHit {
+    page_idx: usize,
+    frame_idx: usize,
+}
+
+/// Case-insensitive substring search over frame name + short id
+/// (`f01`, `f02`, …). Page name is shown in each result row as context
+/// but is intentionally NOT a match target — otherwise typing "AHIM"
+/// returns every frame on a page called "AHIMA 2025 Invite", which
+/// floods the result panel. To narrow by page, use `--page` on the CLI
+/// or just navigate to the page in the tree.
+fn search_results(pages: &[PageNode], query: &str) -> Vec<SearchHit> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let q = query.to_lowercase();
+    let mut hits = Vec::new();
+    for (pi, page) in pages.iter().enumerate() {
+        for (fi, frame) in page.frames.iter().enumerate() {
+            if frame.name.to_lowercase().contains(&q) || frame.short_id.to_lowercase().contains(&q)
+            {
+                hits.push(SearchHit {
+                    page_idx: pi,
+                    frame_idx: fi,
+                });
+            }
+        }
+    }
+    hits
+}
+
 fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> Result<Vec<usize>> {
     // Build tree model
     let mut pages: Vec<PageNode> = canvas_pages
@@ -618,6 +711,14 @@ fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> 
         .collect();
 
     let mut cursor_pos: usize = 0;
+
+    // Search-palette state. When `search_mode` is true, the tree view is
+    // hidden and the input + results panel takes over. Toggles made from
+    // a result row mutate the same `frame.selected` bits the tree reads,
+    // so the tree shows them immediately on exit.
+    let mut search_mode: bool = false;
+    let mut search_query: String = String::new();
+    let mut search_cursor: SearchCursor = SearchCursor::Input;
 
     // Enter raw mode
     terminal::enable_raw_mode()?;
@@ -653,6 +754,192 @@ fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> 
             } else {
                 cursor_pos - max_rows / 2
             };
+
+            // ── Search palette branch ────────────────────────────────────
+            // Render and handle keys entirely separately when in search
+            // mode — the tree is hidden, replaced by an input + matches.
+            if search_mode {
+                let hits = search_results(&pages, &search_query);
+                let max_hits_visible = (term_height as usize).saturating_sub(8);
+                // Clamp the result cursor into range
+                if let SearchCursor::Result(n) = search_cursor {
+                    if hits.is_empty() {
+                        search_cursor = SearchCursor::Input;
+                    } else if n >= hits.len() {
+                        search_cursor = SearchCursor::Result(hits.len() - 1);
+                    }
+                }
+
+                let mut lines: Vec<String> = Vec::new();
+                lines.push(String::new());
+                lines.push(format!(
+                    "  {}  {}",
+                    "Search frames".bold(),
+                    format!("{total_selected}/{total_frames} selected").dimmed()
+                ));
+                lines.push(String::new());
+
+                // Input row — show a block cursor only when focused.
+                let input_focused = matches!(search_cursor, SearchCursor::Input);
+                let cursor_glyph = if input_focused { "█" } else { " " };
+                let count_str = if search_query.is_empty() {
+                    "type to search…".dimmed().to_string()
+                } else {
+                    format!("({} matches)", hits.len()).dimmed().to_string()
+                };
+                let prompt = if input_focused {
+                    "/".cyan().bold().to_string()
+                } else {
+                    "/".dimmed().to_string()
+                };
+                lines.push(format!(
+                    "  {} {}{}  {}",
+                    prompt, search_query, cursor_glyph, count_str
+                ));
+                lines.push(String::new());
+
+                if hits.is_empty() {
+                    if !search_query.is_empty() {
+                        lines.push(format!(
+                            "  {}",
+                            "no matches — keep typing or Esc to go back".dimmed()
+                        ));
+                    }
+                } else {
+                    let visible_hits = hits.iter().take(max_hits_visible);
+                    for (i, hit) in visible_hits.enumerate() {
+                        let frame = &pages[hit.page_idx].frames[hit.frame_idx];
+                        let page = &pages[hit.page_idx];
+                        let check = if frame.selected {
+                            format!("[{}]", "x".green())
+                        } else {
+                            "[ ]".to_string()
+                        };
+                        let name = clean_display_name(&frame.name, 38);
+                        let page_label = clean_display_name(&page.name, 28);
+                        let id = &frame.short_id;
+                        let is_focused = matches!(search_cursor, SearchCursor::Result(n) if n == i);
+
+                        if is_focused {
+                            lines.push(format!(
+                                "  {} {} {}  {} {}  {}",
+                                "▶".cyan().bold(),
+                                check,
+                                name.cyan().bold(),
+                                "·".dimmed(),
+                                page_label.dimmed(),
+                                id.dimmed().italic()
+                            ));
+                        } else if frame.selected {
+                            lines.push(format!(
+                                "    {} {}  {} {}  {}",
+                                check,
+                                name.green(),
+                                "·".dimmed(),
+                                page_label.dimmed(),
+                                id.dimmed().italic()
+                            ));
+                        } else {
+                            lines.push(format!(
+                                "    {} {}  {} {}  {}",
+                                check,
+                                name,
+                                "·".dimmed(),
+                                page_label.dimmed(),
+                                id.dimmed().italic()
+                            ));
+                        }
+                    }
+                    if hits.len() > max_hits_visible {
+                        lines.push(format!(
+                            "    {}",
+                            format!(
+                                "… {} more — keep typing to narrow",
+                                hits.len() - max_hits_visible
+                            )
+                            .dimmed()
+                        ));
+                    }
+                }
+
+                lines.push(String::new());
+                lines.push(format!(
+                    "  {} navigate   {} toggle   {} done   {} cancel search",
+                    "↑↓".dimmed(),
+                    "space".dimmed(),
+                    "enter".dimmed(),
+                    "esc".dimmed(),
+                ));
+
+                execute!(
+                    stdout,
+                    cursor::MoveTo(0, 0),
+                    terminal::Clear(ClearType::All)
+                )?;
+                for line in &lines {
+                    write!(stdout, "{}\r\n", line)?;
+                }
+                stdout.flush()?;
+
+                // Search-mode key handling.
+                if let Event::Key(KeyEvent { code, .. }) = event::read()? {
+                    match code {
+                        KeyCode::Esc | KeyCode::Enter => {
+                            // Both close the palette and return to the
+                            // tree. There's nothing to "revert" because
+                            // toggles are immediate.
+                            search_mode = false;
+                            search_query.clear();
+                            search_cursor = SearchCursor::Input;
+                        }
+                        KeyCode::Backspace => {
+                            search_query.pop();
+                            // Always pull focus back to the input so
+                            // typing continues to land here.
+                            search_cursor = SearchCursor::Input;
+                        }
+                        KeyCode::Char(' ') => {
+                            // Space on a result toggles that frame and
+                            // stays in search (the multi-select flow);
+                            // space in the input field is a literal char
+                            // so multi-word queries work.
+                            match search_cursor {
+                                SearchCursor::Result(n) => {
+                                    if let Some(hit) = hits.get(n) {
+                                        let f = &mut pages[hit.page_idx].frames[hit.frame_idx];
+                                        f.selected = !f.selected;
+                                    }
+                                }
+                                SearchCursor::Input => {
+                                    search_query.push(' ');
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            search_query.push(c);
+                            search_cursor = SearchCursor::Input;
+                        }
+                        KeyCode::Down => {
+                            search_cursor = match search_cursor {
+                                SearchCursor::Input if !hits.is_empty() => SearchCursor::Result(0),
+                                SearchCursor::Result(n) if n + 1 < hits.len() => {
+                                    SearchCursor::Result(n + 1)
+                                }
+                                other => other,
+                            };
+                        }
+                        KeyCode::Up => {
+                            search_cursor = match search_cursor {
+                                SearchCursor::Result(0) => SearchCursor::Input,
+                                SearchCursor::Result(n) => SearchCursor::Result(n - 1),
+                                SearchCursor::Input => SearchCursor::Input,
+                            };
+                        }
+                        _ => {}
+                    }
+                }
+                continue;
+            }
 
             // Render
             let mut lines: Vec<String> = Vec::new();
@@ -770,9 +1057,11 @@ fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> 
                 "q".dimmed()
             ));
             lines.push(format!(
-                "  {} expand     {} all",
+                "  {} expand     {} all     {} search     {} section",
                 "→←".dimmed(),
-                "a".dimmed()
+                "a".dimmed(),
+                "/".dimmed(),
+                "n/p".dimmed()
             ));
 
             // Write
@@ -792,6 +1081,14 @@ fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> 
                     KeyCode::Char('q') | KeyCode::Esc => {
                         // Signal cancellation with None
                         return Ok(Vec::new());
+                    }
+                    KeyCode::Char('/') | KeyCode::Char('s') => {
+                        // Open the search palette. Selections persist —
+                        // search just gives a fast way to flip the same
+                        // bits the tree shows.
+                        search_mode = true;
+                        search_query.clear();
+                        search_cursor = SearchCursor::Input;
                     }
                     KeyCode::Up => {
                         cursor_pos = cursor_pos.saturating_sub(1);
@@ -846,6 +1143,32 @@ fn interactive_select(canvas_pages: &[CanvasNode], all_frames: &[FrameInfo]) -> 
                     }
                     KeyCode::Enter => {
                         break;
+                    }
+                    KeyCode::Char('n') => {
+                        // Jump cursor to the next PAGE header (skip
+                        // through frames within the current page).
+                        let visible = build_visible(&pages);
+                        if let Some((i, _)) = visible
+                            .iter()
+                            .enumerate()
+                            .skip(cursor_pos + 1)
+                            .find(|(_, r)| matches!(r, VisibleRow::Page(_)))
+                        {
+                            cursor_pos = i;
+                        }
+                    }
+                    KeyCode::Char('p') => {
+                        // Jump cursor to the previous PAGE header.
+                        let visible = build_visible(&pages);
+                        if let Some((i, _)) = visible
+                            .iter()
+                            .enumerate()
+                            .take(cursor_pos)
+                            .rev()
+                            .find(|(_, r)| matches!(r, VisibleRow::Page(_)))
+                        {
+                            cursor_pos = i;
+                        }
                     }
                     KeyCode::Char('a') => {
                         // Toggle all
@@ -907,6 +1230,92 @@ fn truncate_display(name: &str, max: usize) -> String {
         let truncated: String = clean.chars().take(max - 1).collect();
         format!("{truncated}…")
     }
+}
+
+/// Friendly explainer shown when the size guardrail fires in a TTY,
+/// right before we hand the user off to the picker. The goal is to make
+/// it obvious why we just refused to start downloading.
+fn print_gate_intro(count: usize, had_filter: bool, file_name: &str) {
+    println!();
+    println!(
+        "  {} {} has {} top-level frames",
+        "⚠".yellow().bold(),
+        file_name.bold(),
+        count.to_string().bold(),
+    );
+    if had_filter {
+        println!(
+            "  {}",
+            "Your filter still matches more frames than we'll sync in one go.".dimmed()
+        );
+    } else {
+        println!(
+            "  {}",
+            "That's a lot — likely a shared design library, not a single project file.".dimmed()
+        );
+        println!(
+            "  {}",
+            "Syncing everything would download every page, every artwork, every asset.".dimmed()
+        );
+    }
+    println!();
+    println!(
+        "  {} {}",
+        "→".cyan(),
+        "Pick the frames you actually need below.".bold(),
+    );
+    println!(
+        "  {} or cancel and re-run with {}, {}, {}, or {} to bypass.",
+        " ".dimmed(),
+        "--frame <name>".cyan(),
+        "--page <name>".cyan(),
+        "--node <id>".cyan(),
+        "--all".cyan(),
+    );
+    println!();
+}
+
+/// Hard-refusal message printed when the gate fires without a TTY.
+/// Exit code 2 is set by the caller; this just explains the situation.
+fn print_gate_refusal(count: usize, had_filter: bool) {
+    eprintln!();
+    if had_filter {
+        eprintln!(
+            "  {} Filter still matches {} frames — refusing to sync this much non-interactively.",
+            "✗".red().bold(),
+            count.to_string().bold(),
+        );
+    } else {
+        eprintln!(
+            "  {} {} frames in this file — refusing to sync everything non-interactively.",
+            "✗".red().bold(),
+            count.to_string().bold(),
+        );
+    }
+    eprintln!(
+        "  {}",
+        "(probably a shared library — would download every page).".dimmed()
+    );
+    eprintln!();
+    eprintln!("  Re-run with one of:");
+    eprintln!(
+        "    {} narrow by frame name",
+        "treble sync --frame <substring>".cyan()
+    );
+    eprintln!(
+        "    {} narrow by page name",
+        "treble sync --page <substring>".cyan()
+    );
+    eprintln!(
+        "    {} sync a single node",
+        "treble sync --node <id-or-url>".cyan()
+    );
+    eprintln!("    {} pick frames interactively", "treble sync -i".cyan());
+    eprintln!(
+        "    {} bypass the gate (only on small files)",
+        "treble sync --all".cyan()
+    );
+    eprintln!();
 }
 
 fn find_sections(nodes: &[FlatNode], frame_width: Option<f64>) -> Vec<SectionInfo> {
