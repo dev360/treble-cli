@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/treble-app/cli/compare/v1.3.1...v1.4.0) (2026-05-08)
+
+
+### Features
+
+* ship sync size guardrail with searchable picker ([19381d8](https://github.com/treble-app/cli/commit/19381d86ac3f0492db3deeb21cf8c1220062edf1)), closes [#2](https://github.com/treble-app/cli/issues/2)
+
 ## [1.3.1](https://github.com/treble-app/cli/compare/v1.3.0...v1.3.1) (2026-05-02)
 
 
